@@ -1,0 +1,7 @@
+streamlit>=1.51.0
+easyocr>=1.7.2
+numpy>=1.26.0
+pillow>=11.0.0
+streamlit-paste-button>=0.1.0
+torch>=2.0.0
+opencv-python-headless>=4.8.0
