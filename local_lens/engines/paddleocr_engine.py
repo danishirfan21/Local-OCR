@@ -35,7 +35,16 @@ def _get_pipeline(engine_lang: str):
 
     pipeline = _pipeline_cache.get(engine_lang)
     if pipeline is None:
-        pipeline = _PaddleOCR(lang=engine_lang)
+        # enable_mkldnn=False works around a real bug found during testing:
+        # paddlepaddle 3.3.1's oneDNN/PIR CPU executor raises
+        # `NotImplementedError: ConvertPirAttribute2RuntimeAttribute not
+        # support [...]` inside the text detection op on CPU-only Windows
+        # inference. Disabling oneDNN avoids the broken code path; it costs
+        # some CPU inference speed but the pipeline is otherwise unaffected
+        # (verified: same rec_texts/rec_scores/rec_polys as with it enabled
+        # on hardware where it doesn't crash). Revisit once upstream fixes
+        # this -- see README.md "PaddleOCR" section.
+        pipeline = _PaddleOCR(lang=engine_lang, enable_mkldnn=False)
         _pipeline_cache[engine_lang] = pipeline
     return pipeline
 

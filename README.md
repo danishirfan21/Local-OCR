@@ -95,6 +95,20 @@ pip install -r requirements-paddle.txt
 If it isn't installed, the sidebar disables the PaddleOCR radio option
 instead of crashing the app.
 
+**Verified working** on Windows/CPU during this iteration (`paddlepaddle`
+3.3.1, `paddleocr` 3.7.0) — with one real bug found and worked around:
+PaddlePaddle's CPU (oneDNN/PIR) executor raised
+`NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support [...]`
+inside the text-detection op on this hardware. `paddleocr_engine.py`
+constructs the pipeline with `enable_mkldnn=False`, which avoids the broken
+code path (costs some CPU inference speed; correctness of the output was
+unaffected in testing). If a future `paddlepaddle` release fixes this
+upstream, that flag can be dropped.
+
+First run downloads ~5 small model files (detection, recognition, doc
+orientation, unwarping, textline orientation) to `~/.paddlex/official_models/`
+— a few tens of MB, one-time.
+
 ## PaddleOCR-VL (research only — not integrated)
 
 The longer-term target for document understanding is
