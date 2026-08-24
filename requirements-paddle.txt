@@ -1,0 +1,14 @@
+# Optional PaddleOCR backend.
+#
+# Kept separate from requirements.txt because paddlepaddle is a large
+# (several-hundred-MB+) dependency with its own CPU/GPU wheel variants, and
+# most users of Local Lens will only ever use the default EasyOCR engine.
+#
+# Install with:
+#   pip install -r requirements.txt
+#   pip install -r requirements-paddle.txt
+#
+# See README.md "PaddleOCR" section for platform notes/known issues.
+
+paddlepaddle>=3.0.0
+paddleocr>=3.0.0
