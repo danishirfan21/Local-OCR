@@ -60,12 +60,44 @@ class TextBlock:
 
 
 @dataclass
+class TableCell:
+    """A single cell within a recognized table."""
+
+    row: int
+    column: int
+    text: str
+    confidence: float | None = None
+    bbox: BoundingBox | None = None
+
+
+@dataclass
+class TableResult:
+    """A single recognized table.
+
+    `has_header` is only True when the extractor actually distinguished a
+    header row -- callers must not assume rows[0] is a header unless this is
+    set, since fabricating a header the model didn't identify would be
+    misleading in exports.
+    """
+
+    rows: list[list[str]]
+    cells: list[TableCell]
+    markdown: str | None
+    confidence: float | None
+    bbox: BoundingBox | None
+    has_header: bool = False
+
+
+@dataclass
 class DocumentResult:
     """Unified output of any OCR/document-understanding engine.
 
     `metadata` is deliberately open-ended so future engines can attach richer
-    structured output (tables, formulas, markdown, document type, ...)
-    without changing this schema.
+    structured output (formulas, document type, timings, routing rationale,
+    ...) without changing this schema. `tables`, `detected_scripts`, and
+    `detected_languages` are promoted to real fields (rather than living in
+    metadata like `content_type` does) because they are structural results
+    other code needs to branch on, not free-form annotations.
     """
 
     text: str
@@ -73,6 +105,9 @@ class DocumentResult:
     language: str | None
     engine: str
     metadata: dict = field(default_factory=dict)
+    tables: list[TableResult] = field(default_factory=list)
+    detected_scripts: list[str] = field(default_factory=list)
+    detected_languages: list[str] = field(default_factory=list)
 
     @property
     def average_confidence(self) -> float | None:

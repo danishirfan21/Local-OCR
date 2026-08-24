@@ -42,3 +42,16 @@ def test_slightly_jittered_baselines_stay_on_one_line():
     # jitter (common in real OCR output) should not be split into two lines.
     blocks = [block("Hello", 0, 10, height=20), block("World", 60, 12, height=20)]
     assert reconstruct_text(blocks) == "Hello World"
+
+
+def test_mixed_urdu_english_line_uses_visual_left_to_right_order():
+    # "Order نمبر 12345 confirmed" laid out left-to-right on screen (Urdu
+    # word in the middle) should reconstruct in that on-screen order, since
+    # block sorting is purely geometric (bbox.left), not script-aware.
+    blocks = [
+        block("Order", 0, 0, width=60),
+        block("نمبر", 70, 0, width=50),
+        block("12345", 130, 0, width=60),
+        block("confirmed", 200, 0, width=90),
+    ]
+    assert reconstruct_text(blocks) == "Order نمبر 12345 confirmed"

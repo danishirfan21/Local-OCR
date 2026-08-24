@@ -4,6 +4,14 @@ This replaces the old `" ".join(text for _, text, _ in results)` (which
 discarded layout entirely and produced one giant line) with a deterministic,
 bounding-box-based line grouping. It is intentionally simple -- a real
 layout-aware model can replace this function later without touching callers.
+
+Mixed-direction (Urdu+English) lines: because blocks within a line are
+sorted by `bbox.left` -- their actual on-screen horizontal position -- this
+already produces the correct visual reading order for mixed-script lines
+without any script-aware reversal logic, since "left to right on screen" is
+the right order regardless of which script sits where. What this can't fix:
+if the OCR engine itself mis-orders characters *within* a single detected
+block (a recognition error), that's upstream of this function.
 """
 
 from __future__ import annotations
