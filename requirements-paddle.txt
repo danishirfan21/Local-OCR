@@ -1,4 +1,4 @@
-# Optional PaddleOCR backend.
+# Optional PaddleOCR backend (plain text OCR).
 #
 # Kept separate from requirements.txt because paddlepaddle is a large
 # (several-hundred-MB+) dependency with its own CPU/GPU wheel variants, and
@@ -12,3 +12,11 @@
 
 paddlepaddle>=3.0.0
 paddleocr>=3.0.0
+
+# Table extraction (local_lens/tables/) and the PaddleOCR-VL experiment
+# (experiments/paddleocr_vl/) both need paddlex's "ocr" extra on top of the
+# above -- it pulls in table/layout/document-parsing sub-dependencies
+# (scikit-learn, premailer, openpyxl, etc.) that the plain text pipeline
+# doesn't need. Install separately since it's a meaningfully larger,
+# slower install:
+#   pip install "paddlex[ocr]==<paddlex version installed above>"
