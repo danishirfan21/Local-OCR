@@ -1,0 +1,119 @@
+{
+  "generated_at": "2026-08-24T22:48:43.280275+00:00",
+  "load_time_s": 146.0,
+  "records": [
+    {
+      "fixture": "short_ui_save",
+      "category": "short_ui",
+      "kind": "text",
+      "latency_s": 41.21,
+      "error": null,
+      "cer": 0.0,
+      "wer": 0.0,
+      "similarity": 1.0,
+      "output_preview": "Save"
+    },
+    {
+      "fixture": "short_ui_cancel",
+      "category": "short_ui",
+      "kind": "text",
+      "latency_s": 38.92,
+      "error": null,
+      "cer": 0.0,
+      "wer": 0.0,
+      "similarity": 1.0,
+      "output_preview": "Cancel Settings OK"
+    },
+    {
+      "fixture": "paragraph",
+      "category": "english",
+      "kind": "text",
+      "latency_s": 7.927,
+      "error": null,
+      "cer": 1.0,
+      "wer": 1.0,
+      "similarity": 0.0,
+      "output_preview": ""
+    },
+    {
+      "fixture": "numeric",
+      "category": "english",
+      "kind": "text",
+      "latency_s": 49.921,
+      "error": null,
+      "cer": 0.0,
+      "wer": 0.0,
+      "similarity": 1.0,
+      "output_preview": "123456 789012 345 67890"
+    },
+    {
+      "fixture": "english_numbers",
+      "category": "english",
+      "kind": "text",
+      "latency_s": 51.539,
+      "error": null,
+      "cer": 0.0,
+      "wer": 0.0,
+      "similarity": 1.0,
+      "output_preview": "Order 12345 confirmed for $99.50"
+    },
+    {
+      "fixture": "code_snippet",
+      "category": "code",
+      "kind": "text",
+      "latency_s": 132.48,
+      "error": null,
+      "cer": 0.219,
+      "wer": 0.0,
+      "similarity": 1.0,
+      "output_preview": "def greet(name):\nif name:\nreturn f'Hi {name}'\nreturn None"
+    },
+    {
+      "fixture": "table_simple",
+      "category": "tables",
+      "kind": "table",
+      "latency_s": 42.667,
+      "error": null
+    },
+    {
+      "fixture": "table_dense",
+      "category": "tables",
+      "kind": "table",
+      "latency_s": 45.979,
+      "error": null
+    },
+    {
+      "fixture": "urdu_paragraph",
+      "category": "urdu",
+      "kind": "text",
+      "latency_s": 42.562,
+      "error": null,
+      "cer": 0.792,
+      "wer": 1.0,
+      "similarity": 0.261,
+      "output_preview": "ہے لمرج کی ای‌نید مراس"
+    },
+    {
+      "fixture": "mixed_urdu_english",
+      "category": "mixed",
+      "kind": "text",
+      "latency_s": 50.378,
+      "error": null,
+      "cer": 0.115,
+      "wer": 0.25,
+      "similarity": 0.923,
+      "output_preview": "Order ربมر 12345 confirmed"
+    },
+    {
+      "fixture": "urdu_numbers",
+      "category": "urdu",
+      "kind": "text",
+      "latency_s": 59.751,
+      "error": null,
+      "cer": 0.4,
+      "wer": 0.5,
+      "similarity": 0.743,
+      "output_preview": "روا 12345 67890"
+    }
+  ]
+}
