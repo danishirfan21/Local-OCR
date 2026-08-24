@@ -17,7 +17,7 @@ from streamlit_paste_button import paste_image_button as pbutton
 
 from local_lens.engines.easyocr_engine import EasyOCREngine
 from local_lens.engines.paddleocr_engine import PADDLEOCR_AVAILABLE, PaddleOCREngine
-from local_lens.export import to_json, to_markdown, to_txt
+from local_lens.export import export_table_csv, export_table_markdown, to_json, to_markdown, to_txt
 from local_lens.languages import DEFAULT_LANGUAGE, available_languages
 from local_lens.models import DocumentResult
 from local_lens.preprocessing.image import (
@@ -26,7 +26,12 @@ from local_lens.preprocessing.image import (
     PRESET_NONE,
     apply_preset,
 )
+from local_lens.routing.engine_router import choose_engine
 from local_lens.services.ocr_service import OCRService
+from local_lens.tables.paddle_table_extractor import (
+    TABLE_EXTRACTION_AVAILABLE,
+    PaddleTableExtractor,
+)
 from local_lens.utils.hashing import hash_image_bytes
 
 # -----------------------------------------------------------------------------
@@ -36,6 +41,7 @@ ENGINES = {
     "easyocr": ("EasyOCR", EasyOCREngine, True),
     "paddleocr": ("PaddleOCR", PaddleOCREngine, PADDLEOCR_AVAILABLE),
 }
+AVAILABLE_ENGINE_KEYS = [k for k, (_, _, available) in ENGINES.items() if available]
 
 PREPROCESSING_LABELS = {
     PRESET_NONE: "None",
@@ -45,14 +51,28 @@ PREPROCESSING_LABELS = {
 
 st.set_page_config(page_title="Local Lens", page_icon="🔍", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    .ll-rtl textarea { direction: rtl; text-align: right; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 # -----------------------------------------------------------------------------
 # Cached construction (model load happens once per config, not per rerun)
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
+def _load_table_extractor():
+    return PaddleTableExtractor() if TABLE_EXTRACTION_AVAILABLE else None
+
+
+@st.cache_resource(show_spinner=False)
 def _load_service(engine_key: str) -> OCRService:
     _, engine_cls, _ = ENGINES[engine_key]
-    return OCRService(engine_cls())
+    return OCRService(engine_cls(), table_extractor=_load_table_extractor())
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -63,6 +83,16 @@ def _run_ocr(
     return service.process(image_bytes, list(langs), preprocessing)
 
 
+def _resolve_engine(engine_choice: str, image_bytes: bytes):
+    """Return (engine_key, routing_reason | None) for the chosen sidebar option."""
+    if engine_choice != "auto":
+        return engine_choice, None
+    image = Image.open(io.BytesIO(image_bytes))
+    decision = choose_engine(image, AVAILABLE_ENGINE_KEYS)
+    reason = f"{ENGINES[decision.engine][0]} -- {decision.reason} (input type: {decision.input_type}, confidence {decision.input_type_confidence:.2f})"
+    return decision.engine, reason
+
+
 def _render_overlay(image: Image.Image, result: DocumentResult) -> Image.Image:
     annotated = image.copy()
     draw = ImageDraw.Draw(annotated)
@@ -71,6 +101,11 @@ def _render_overlay(image: Image.Image, result: DocumentResult) -> Image.Image:
             continue
         box = [block.bbox.left, block.bbox.top, block.bbox.right, block.bbox.bottom]
         draw.rectangle(box, outline="#4ade80", width=2)
+    for table in result.tables:
+        if table.bbox is None:
+            continue
+        box = [table.bbox.left, table.bbox.top, table.bbox.right, table.bbox.bottom]
+        draw.rectangle(box, outline="#3b82f6", width=3)
     return annotated
 
 
@@ -97,17 +132,24 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown("#### OCR Engine")
-    engine_options = list(ENGINES.keys())
-    engine_key = st.radio(
+    engine_choice_options = ["auto"] + list(ENGINES.keys())
+
+    def _engine_label(k: str) -> str:
+        if k == "auto":
+            return "Auto (recommended)"
+        name, _, available = ENGINES[k]
+        return name + ("" if available else " (not installed)")
+
+    engine_choice = st.radio(
         "OCR Engine",
-        options=engine_options,
-        format_func=lambda k: ENGINES[k][0] + ("" if ENGINES[k][2] else " (not installed)"),
+        options=engine_choice_options,
+        format_func=_engine_label,
         index=0,
         label_visibility="collapsed",
     )
-    if not ENGINES[engine_key][2]:
+    if engine_choice != "auto" and not ENGINES[engine_choice][2]:
         st.warning(
-            f"{ENGINES[engine_key][0]} is not installed. "
+            f"{ENGINES[engine_choice][0]} is not installed. "
             "See README.md for setup, or pick a different engine."
         )
 
@@ -209,11 +251,13 @@ image_bytes = (
 # Processing + results
 # -----------------------------------------------------------------------------
 if image_bytes is not None:
-    if not ENGINES[engine_key][2]:
-        st.error(f"{ENGINES[engine_key][0]} is not installed -- pick another engine.")
+    engine_key, routing_reason = _resolve_engine(engine_choice, image_bytes)
+
+    if not ENGINES.get(engine_key, (None, None, False))[2]:
+        st.error(f"{engine_key} is not installed -- pick another engine.")
     else:
         try:
-            with st.spinner("🔍 Reading text from image..."):
+            with st.spinner(f"🔍 Reading text from image ({ENGINES[engine_key][0]})..."):
                 result = _run_ocr(image_bytes, engine_key, tuple(selected_langs), preprocessing)
         except Exception as exc:
             st.error(f"OCR failed: {exc}")
@@ -224,11 +268,27 @@ if image_bytes is not None:
 
             content_type = result.metadata.get("content_type", "unknown")
             avg_conf = result.average_confidence
+            is_urdu_primary = "ur" in result.detected_languages
 
-            m1, m2, m3 = st.columns(3)
+            m1, m2, m3, m4 = st.columns(4)
             m1.metric("Words/lines detected", result.metadata.get("block_count", 0))
             m2.metric("Average confidence", f"{avg_conf * 100:.1f}%" if avg_conf else "N/A")
-            m3.metric("Detected content", content_type.capitalize())
+            label = "Table" if content_type == "table" else content_type.capitalize()
+            if is_urdu_primary:
+                label += " (Urdu)"
+            m3.metric("Detected content", label)
+            m4.metric("Total time", f"{result.metadata.get('total_ms', 0):.0f} ms")
+
+            with st.expander("⚙️ Advanced details"):
+                st.write(f"**Engine used:** {ENGINES[engine_key][0]}")
+                if routing_reason:
+                    st.write(f"**Auto routing:** {routing_reason}")
+                else:
+                    st.write("**Auto routing:** not used (manual engine selection)")
+                st.write(f"**Detected scripts:** {result.detected_scripts or 'none'}")
+                st.write(f"**Detected languages:** {result.detected_languages or 'unresolved'}")
+                st.write("**Stage timings (ms):**")
+                st.json(result.metadata.get("timings", {}))
 
             img_col, text_col = st.columns([1, 1])
 
@@ -242,41 +302,70 @@ if image_bytes is not None:
             with text_col:
                 st.markdown("#### 📝 Extracted text")
                 if result.text.strip():
+                    text_area_class = "ll-rtl" if is_urdu_primary else ""
+                    if text_area_class:
+                        st.markdown(f'<div class="{text_area_class}">', unsafe_allow_html=True)
                     st.text_area(
                         "Extracted content",
                         result.text,
                         height=320,
                         label_visibility="collapsed",
                     )
+                    if text_area_class:
+                        st.markdown("</div>", unsafe_allow_html=True)
 
                     # Contextual export actions based on detected content type.
                     st.markdown("##### Export")
-                    d1, d2, d3 = st.columns(3)
-                    with d1:
-                        label = "📥 Download Code" if content_type == "code" else "📥 Download TXT"
-                        st.download_button(
-                            label,
-                            data=to_txt(result),
-                            file_name="extracted_text.txt",
-                            mime="text/plain",
-                        )
-                    with d2:
-                        if content_type != "code":
+                    if content_type == "code":
+                        d1, d2 = st.columns(2)
+                        with d1:
                             st.download_button(
-                                "📥 Download Markdown",
-                                data=to_markdown(result),
-                                file_name="extracted_text.md",
-                                mime="text/markdown",
+                                "📥 Download Code (TXT)", data=to_txt(result),
+                                file_name="extracted_code.txt", mime="text/plain",
                             )
-                    with d3:
-                        # JSON is always offered regardless of content type --
-                        # it's the structured backbone future Local Lens
-                        # features (tables, formulas, schema extraction) build on.
-                        st.download_button(
-                                "📥 Download JSON",
-                                data=to_json(result),
-                                file_name="extracted_text.json",
-                                mime="application/json",
+                        with d2:
+                            st.download_button(
+                                "📥 Download JSON", data=to_json(result),
+                                file_name="extracted_code.json", mime="application/json",
+                            )
+                    elif content_type == "table" and result.tables:
+                        table = result.tables[0]
+                        st.dataframe(table.rows, use_container_width=True)
+                        d1, d2, d3 = st.columns(3)
+                        with d1:
+                            st.download_button(
+                                "📥 Export CSV", data=export_table_csv(table),
+                                file_name="table.csv", mime="text/csv",
+                            )
+                        with d2:
+                            st.download_button(
+                                "📥 Export Markdown", data=export_table_markdown(table),
+                                file_name="table.md", mime="text/markdown",
+                            )
+                        with d3:
+                            st.download_button(
+                                "📥 Export JSON", data=to_json(result),
+                                file_name="table.json", mime="application/json",
+                            )
+                    else:
+                        status = result.metadata.get("table_extraction_status")
+                        if content_type == "table" and status and status != "ok":
+                            st.caption(f"Table detected but extraction {status.replace('_', ' ')} -- showing plain text instead.")
+                        d1, d2, d3 = st.columns(3)
+                        with d1:
+                            st.download_button(
+                                "📥 Download TXT", data=to_txt(result),
+                                file_name="extracted_text.txt", mime="text/plain",
+                            )
+                        with d2:
+                            st.download_button(
+                                "📥 Download Markdown", data=to_markdown(result),
+                                file_name="extracted_text.md", mime="text/markdown",
+                            )
+                        with d3:
+                            st.download_button(
+                                "📥 Download JSON", data=to_json(result),
+                                file_name="extracted_text.json", mime="application/json",
                             )
                 else:
                     st.info(

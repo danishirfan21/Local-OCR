@@ -1,0 +1,36 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Name",
+      "Score",
+      "Rank",
+      "Team"
+    ],
+    [
+      "Alice",
+      "92",
+      "1",
+      "Red"
+    ],
+    [
+      "Bob",
+      "85",
+      "2",
+      "Blue"
+    ],
+    [
+      "Carol",
+      "77",
+      "3",
+      "Red"
+    ],
+    [
+      "Dave",
+      "65",
+      "4",
+      "Blue"
+    ]
+  ],
+  "has_header": true
+}

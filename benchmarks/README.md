@@ -1,57 +1,82 @@
 # Local Lens benchmark harness
 
-A lightweight framework for comparing OCR engines. This is a **skeleton**
-for now -- it establishes the structure and runs end-to-end, but the sample
-set is tiny and synthetic, and the accuracy metric is intentionally naive.
+A corpus + harness for comparing OCR engines (and, separately, table
+extraction). Still a framework more than a tuned suite -- see "Known
+limitations" below before reading too much into any single number.
 
 ## Layout
 
 ```
 benchmarks/
 ├── README.md
-├── run_benchmark.py     # CLI: runs configured engines over samples/
-└── samples/
-    ├── manifest.json    # list of {image, ground_truth} pairs
-    └── *.png            # generated on first run if missing (see below)
+├── corpus.py           # fixture definitions + synthetic image generation
+├── metrics.py           # CER, WER, normalized similarity, table accuracy
+├── run_benchmark.py     # CLI: runs configured engines over the corpus
+├── samples/
+│   ├── english/          paragraph, numeric, English+numbers
+│   ├── urdu/              pure Urdu text, Urdu+numbers
+│   ├── mixed/             Urdu+English mixed line
+│   ├── short_ui/          "Save", "Cancel Settings OK"
+│   ├── tables/             simple 3x3, dense 5x4
+│   ├── code/               a short Python snippet
+│   └── documents/          (reserved for future longer/multi-paragraph fixtures)
+├── ground_truth/         mirrors samples/, one .json per fixture (committed)
+└── results/               one timestamped .json per run (committed selectively)
 ```
 
-## Adding samples
+Images under `samples/` are regenerated on demand from `corpus.py`'s
+`CORPUS` list (they're gitignored) -- `ground_truth/` is committed since
+it's small, human-readable text/table data.
 
-Add ground-truth text under `samples/` and register it in
-`samples/manifest.json`:
+## Corpus
 
-```json
-{
-  "image": "my_sample.png",
-  "ground_truth": "Expected extracted text"
-}
-```
+All fixtures are synthetic (rendered via PIL) -- nothing copyrighted or
+private, so the whole corpus is safe to commit and regenerate. Covers, at
+minimum: short UI text, a paragraph, pure numbers, English+numbers, a code
+snippet, a simple table, a dense table, pure Urdu text, Urdu+numbers, and a
+mixed Urdu/English line.
 
-Do not commit copyrighted or private material -- use synthetic images
-(rendered text, screenshots you own the rights to, or generated test
-fixtures) only. `run_benchmark.py` will auto-generate a couple of tiny
-synthetic PNGs from `manifest.json` entries that don't yet have an image
-file on disk, using PIL's own font rendering, so the repo doesn't need to
-ship binary fixtures at all if you don't want it to.
+**Known limitation -- Urdu fixture quality:** this environment's Pillow
+build has no `raqm` text-shaping support (checked via
+`PIL.features.check("raqm")`), so the Urdu fixtures render Arabic-script
+glyphs in **isolated letterforms**, not properly joined Nastaliq/Naskh
+script. Treat Urdu benchmark numbers here as "does the pipeline handle
+Arabic-script Unicode end-to-end," not "how accurate is this on realistic
+Urdu screenshots" -- for the latter you'd need a real screenshot or a
+shaping-capable renderer (e.g. Pillow built with `libraqm`, or a browser
+screenshot).
 
-## What it measures today
+## Metrics
 
-- **Latency**: wall-clock seconds per image per engine.
-- **Rough accuracy**: word-overlap ratio between the engine's reconstructed
-  text and the ground truth (case-insensitive, whitespace-normalized). This
-  is not edit-distance/WER and should not be treated as a precise quality
-  score -- it is a directional smoke signal only.
+- **CER / WER**: Levenshtein edit distance over characters/words,
+  normalized by ground-truth length. 0.0 = perfect.
+- **Normalized similarity**: `difflib.SequenceMatcher` ratio, case/
+  whitespace-insensitive, in [0, 1].
+- **Latency**: wall-clock seconds per fixture per engine (includes
+  preprocessing + reconstruction + classification, i.e. the full
+  `OCRService.process()` call, not just raw engine inference).
+- **Table fixtures** are scored separately: row-count match, column-count
+  match, and cell-text accuracy (case-insensitive exact match per cell,
+  only over the overlapping region if predicted/ground-truth dimensions
+  differ).
+- **Block count** and **average confidence** are recorded but not scored
+  against anything -- informational only.
 
-## What it does not measure yet (future work)
+## What this still does not measure
 
 - Memory usage per engine.
-- Language-specific accuracy breakdowns (e.g. Urdu vs English).
-- Layout/reading-order preservation quality.
-- Table/formula extraction accuracy (no engine produces these yet).
+- A real accuracy comparison on Urdu (see the fixture-quality caveat
+  above).
+- Layout/reading-order preservation on genuinely multi-column input (no
+  such fixture exists yet).
+- Anything about PaddleOCR-VL -- that's a separate track, see
+  `experiments/paddleocr_vl/`.
 
 ## Running
 
 ```bash
-python benchmarks/run_benchmark.py
+python benchmarks/run_benchmark.py                # all available engines
 python benchmarks/run_benchmark.py --engine easyocr
 ```
+
+Prints a human-readable summary and writes `benchmarks/results/<UTC timestamp>.json`.

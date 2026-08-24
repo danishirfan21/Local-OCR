@@ -1,0 +1,4 @@
+{
+  "kind": "text",
+  "text": "def greet(name):\n    if name:\n        return f'Hi {name}'\n    return None"
+}

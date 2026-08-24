@@ -45,5 +45,7 @@ desktop.ini
 # *.png
 # *.webp
 
-# Benchmark sample images are auto-generated from manifest.json on first run
-benchmarks/samples/*.png
+# Benchmark sample images are auto-generated from corpus.py on first run
+# (ground_truth/ JSON is committed -- it's small, human-readable, and useful
+# as reference even without regenerating the images)
+benchmarks/samples/**/*.png

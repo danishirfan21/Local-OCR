@@ -1,0 +1,21 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Product",
+      "Quantity",
+      "Price"
+    ],
+    [
+      "Keyboard",
+      "2",
+      "50"
+    ],
+    [
+      "Mouse",
+      "1",
+      "25"
+    ]
+  ],
+  "has_header": true
+}
