@@ -62,3 +62,65 @@ def test_empty_engine_result_produces_empty_text():
     result = service.process(_png_bytes(), ["en"], "none")
     assert result.text == ""
     assert result.metadata["content_type"] == "unknown"
+
+
+def test_service_attaches_timings_and_language_detection():
+    service = OCRService(FakeEngine())
+    result = service.process(_png_bytes(), ["en"], "none")
+    assert "timings" in result.metadata
+    assert "ocr_ms" in result.metadata["timings"]
+    assert result.detected_scripts == ["latin"]
+
+
+def _table_like_blocks():
+    blocks = []
+    for row in range(4):
+        blocks.append(TextBlock("word", 0.9, BoundingBox(0, row * 30, 50, 20)))
+        blocks.append(TextBlock("42", 0.9, BoundingBox(200, row * 30, 50, 20)))
+    return blocks
+
+
+def test_table_extraction_not_attempted_for_non_table_content():
+    service = OCRService(FakeEngine())  # single block -> plain text
+    result = service.process(_png_bytes(), ["en"], "none")
+    assert result.metadata["table_extraction_status"] == "not_attempted"
+    assert result.tables == []
+
+
+def test_table_content_without_extractor_reports_unavailable():
+    service = OCRService(FakeEngine(blocks=_table_like_blocks()), table_extractor=None)
+    result = service.process(_png_bytes(), ["en"], "none")
+    assert result.metadata["content_type"] == "table"
+    assert result.metadata["table_extraction_status"] == "unavailable"
+    assert result.tables == []
+
+
+class _FailingTableExtractor:
+    name = "failing"
+
+    def extract(self, image):
+        raise RuntimeError("simulated table extractor failure")
+
+
+def test_table_extractor_failure_does_not_lose_plain_ocr_result():
+    service = OCRService(FakeEngine(blocks=_table_like_blocks()), table_extractor=_FailingTableExtractor())
+    result = service.process(_png_bytes(), ["en"], "none")
+    assert result.text  # plain OCR text still present
+    assert result.tables == []
+    assert "failed" in result.metadata["table_extraction_status"]
+
+
+class _WorkingTableExtractor:
+    name = "working"
+
+    def extract(self, image):
+        from local_lens.models import TableResult
+
+        return [TableResult(rows=[["a", "b"]], cells=[], markdown=None, confidence=None, bbox=None)]
+
+
+def test_table_extractor_success_populates_tables():
+    service = OCRService(FakeEngine(blocks=_table_like_blocks()), table_extractor=_WorkingTableExtractor())
+    result = service.process(_png_bytes(), ["en"], "none")
+    assert len(result.tables) == 1
+    assert result.metadata["table_extraction_status"] == "ok"
