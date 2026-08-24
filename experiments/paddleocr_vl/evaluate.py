@@ -28,18 +28,21 @@ from metrics import (  # noqa: E402
 RESULTS_PATH = Path(__file__).resolve().parent / "results.json"
 
 
-def _extract_markdown_text(page: dict) -> str:
+def _extract_markdown_text(page) -> str:
     """Best-effort plain-text extraction from a PaddleOCR-VL page result.
 
-    PaddleOCR-VL's primary output is markdown/structured blocks rather than
-    a flat word list like the OCR-only engines -- this pulls whatever text
-    representation is present for a like-for-like CER/WER comparison,
-    without claiming it's using the model's full structured output.
+    `page` is a paddlex PaddleOCRVLResult; its dict-like `page.get(...)`
+    interface does not expose a top-level "text"/"markdown" string (that
+    was an incorrect assumption in an earlier version of this script,
+    confirmed wrong by inspecting a real result object). The actual
+    recognized text lives in `page["parsing_res_list"]`, a list of
+    PaddleOCRVLBlock objects each with a `.content` string -- this joins
+    them in order for a like-for-like CER/WER comparison with the
+    OCR-only engines, without claiming it's using the model's full
+    structured/layout output.
     """
-    for key in ("markdown", "md", "text", "pred_html"):
-        if page.get(key):
-            return str(page[key])
-    return ""
+    blocks = page.get("parsing_res_list") or []
+    return "\n".join(getattr(b, "content", "") or "" for b in blocks)
 
 
 def main() -> None:
