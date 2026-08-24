@@ -10,9 +10,14 @@ below; engines translate at the boundary.
 from __future__ import annotations
 
 # canonical_code -> (display name, {engine_name: engine_specific_code})
+#
+# Verified against the actually-installed paddleocr==3.7.0 during V3 (see
+# the implementation report): PaddleOCR(lang="urdu") raises "No models are
+# available for lang='urdu'" -- the real code is "ur", identical to
+# EasyOCR's. An earlier, unverified V2 assumption had this wrong.
 _LANGUAGES: dict[str, tuple[str, dict[str, str]]] = {
     "en": ("English", {"easyocr": "en", "paddleocr": "en"}),
-    "ur": ("Urdu", {"easyocr": "ur", "paddleocr": "urdu"}),
+    "ur": ("Urdu", {"easyocr": "ur", "paddleocr": "ur"}),
 }
 
 DEFAULT_LANGUAGE = "en"
