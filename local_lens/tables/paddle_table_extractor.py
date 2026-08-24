@@ -8,7 +8,14 @@ this only runs when content classification already suspects a table.
 Result field names were confirmed empirically against a real run (see
 tests/test_tables.py and the V3 implementation report) rather than assumed
 from documentation, following the same approach used for the plain
-PaddleOCR engine in V2.
+PaddleOCR engine in V2. That real run also surfaced two honest limitations:
+`pred_html` did not use <th> tags for the header row in testing, so
+has_header comes back False even for tables with an obvious header row
+(the alternative -- guessing a header from position -- would mean
+fabricating structure the model didn't actually assert, which contradicts
+this module's own has_header contract); and a spurious empty trailing row
+appeared in one real run. Both are documented in the V3 report rather than
+silently patched over.
 """
 
 from __future__ import annotations
