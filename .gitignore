@@ -22,6 +22,9 @@ env/
 *.swo
 *~
 
+# Local dev tooling (per-machine preview/launch config)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -41,3 +44,6 @@ desktop.ini
 # *.jpeg
 # *.png
 # *.webp
+
+# Benchmark sample images are auto-generated from manifest.json on first run
+benchmarks/samples/*.png
