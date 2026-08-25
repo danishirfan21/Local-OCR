@@ -26,6 +26,11 @@ class CaptureOverlay(QWidget):
         super().__init__(parent)
         self.screenshot = screenshot
         self.device_pixel_ratio = screen.devicePixelRatio()
+        # Global (virtual-desktop) geometry of the monitor this overlay
+        # covers -- needed by result popup positioning, which (unlike
+        # cropping) genuinely needs the monitor's real desktop offset,
+        # including a negative one. See desktop/result/positioning.py.
+        self.screen_geometry = screen.geometry()
         self._drag_start: QPoint | None = None
         self._drag_current: QPoint | None = None
 
