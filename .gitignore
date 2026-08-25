@@ -57,3 +57,5 @@ benchmarks_remote/results/
 
 # Never commit real provider credentials
 .env
+.env.*
+!.env.example
