@@ -5,6 +5,7 @@ from reaching into local_lens.cli internals."""
 
 from __future__ import annotations
 
+from desktop.runtime_context import resolve_easyocr_model_dir
 from local_lens.engines.easyocr_engine import EasyOCREngine
 from local_lens.languages import DEFAULT_LANGUAGE
 from local_lens.services.ocr_service import OCRService
@@ -23,7 +24,13 @@ def _new_fast_engine() -> EasyOCREngine:
     # downloading a missing ~300MB model set over HTTP would quietly
     # violate that guarantee. A missing model surfaces as a clear
     # FileNotFoundError instead (see friendly_model_error_message below).
-    return EasyOCREngine(download_enabled=False)
+    #
+    # model_storage_directory resolves via desktop.runtime_context, which
+    # checks a bundled models/easyocr/ resource first (no build populates
+    # it yet -- see docs/V6_7_PORTABLE_OPTIMIZATION.md) and falls back to
+    # the user's own ~/.EasyOCR/model cache, which is what every V6.6/V6.7
+    # build actually uses today.
+    return EasyOCREngine(download_enabled=False, model_storage_directory=str(resolve_easyocr_model_dir()))
 
 
 def build_fast_service() -> OCRService:

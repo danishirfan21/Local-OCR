@@ -12,20 +12,23 @@ from local_lens.models import BoundingBox, DocumentResult, TextBlock
 # per language set. Streamlit additionally wraps the *service* in
 # st.cache_resource, but caching here too keeps this module usable
 # standalone (CLI, tests, future API) without depending on Streamlit.
-_reader_cache: dict[tuple[str, ...], object] = {}
+_reader_cache: dict[tuple, object] = {}
 
 
-def _get_reader(engine_langs: list[str], *, download_enabled: bool):
+def _get_reader(engine_langs: list[str], *, download_enabled: bool, model_storage_directory: str | None):
     import easyocr  # imported lazily so importing this module is cheap
 
-    # download_enabled is not part of the cache key -- a given language set
-    # only ever gets constructed once per process regardless of which
-    # caller asked first, matching the existing single-cache-per-language
-    # design (see the class docstring above).
-    key = tuple(sorted(engine_langs))
+    # model_storage_directory is part of the cache key (unlike
+    # download_enabled) -- a desktop caller resolving a bundled model
+    # directory and a CLI/benchmark caller using EasyOCR's own default
+    # must never share a cached Reader pointed at the wrong directory.
+    sorted_langs = tuple(sorted(engine_langs))
+    key = (sorted_langs, model_storage_directory)
     reader = _reader_cache.get(key)
     if reader is None:
-        reader = easyocr.Reader(list(key), download_enabled=download_enabled)
+        reader = easyocr.Reader(
+            list(sorted_langs), download_enabled=download_enabled, model_storage_directory=model_storage_directory
+        )
         _reader_cache[key] = reader
     return reader
 
@@ -33,19 +36,30 @@ def _get_reader(engine_langs: list[str], *, download_enabled: bool):
 class EasyOCREngine:
     name = "easyocr"
 
-    def __init__(self, *, download_enabled: bool = True):
-        # Desktop's Fast OCR path passes False (see
+    def __init__(self, *, download_enabled: bool = True, model_storage_directory: str | None = None):
+        # Desktop's Fast OCR path passes download_enabled=False (see
         # desktop/ocr_service_factory.py) -- Fast OCR is guaranteed
         # zero-network-calls (tested), and EasyOCR's own default of
         # silently downloading a missing model over HTTP would quietly
         # violate that guarantee the first time a model happens to be
         # absent. The CLI/Streamlit/benchmark paths keep the permissive
         # default so existing dev workflows are unaffected.
+        #
+        # model_storage_directory=None keeps EasyOCR's own default
+        # (~/.EasyOCR/model) -- desktop passes an explicit resolved path
+        # from desktop.runtime_context.resolve_easyocr_model_dir() so
+        # packaged-vs-dev model-directory resolution lives in one place,
+        # not here.
         self._download_enabled = download_enabled
+        self._model_storage_directory = model_storage_directory
 
     def extract(self, image: Image.Image, langs: list[str]) -> DocumentResult:
         engine_langs = [to_engine_code(lang, self.name) for lang in langs]
-        reader = _get_reader(engine_langs, download_enabled=self._download_enabled)
+        reader = _get_reader(
+            engine_langs,
+            download_enabled=self._download_enabled,
+            model_storage_directory=self._model_storage_directory,
+        )
 
         image_np = np.array(image.convert("RGB"))
         raw_results = reader.readtext(image_np)

@@ -1,10 +1,7 @@
-# PyInstaller spec for the Local Lens desktop app (V6.6 packaging smoke
-# test -- see docs/V6_6_PACKAGING_SMOKE_TEST.md for the full record of
-# what this build was for and what it proved/didn't prove).
+# PyInstaller spec for the Local Lens desktop app.
 #
-# onedir, not onefile: a onefile build re-extracts its full payload (this
-# app is ~1.6-2.0GB, dominated by torch/PySide6/OpenCV) to a temp
-# directory on every single launch, which is slow and raises AV
+# onedir, not onefile: a onefile build re-extracts its full payload to a
+# temp directory on every single launch, which is slow and raises AV
 # suspicion for no benefit here -- see
 # docs/V6_5_RELEASE_READINESS.md's packaging-comparison section.
 #
@@ -13,15 +10,13 @@
 #   .venv\Scripts\python.exe -m PyInstaller packaging\local_lens.spec `
 #       --distpath "D:\Local OCR\dist" --workpath "D:\Local OCR\build\pyinstaller"
 #
-# No icon file is bundled -- desktop/icon.py draws the tray/window icon
-# at runtime, so there is no .ico asset to reference here (see item 18's
-# "current runtime-generated icon is adequate for a first release").
-#
-# No credentials, no .env, and no EasyOCR model weights are referenced by
-# this spec -- see the model-strategy section of
-# docs/V6_6_PACKAGING_SMOKE_TEST.md for why model weights are
-# deliberately NOT bundled in this smoke-test build.
+# No credentials, no .env, and (by default) no EasyOCR model weights are
+# referenced by this spec -- see docs/V6_7_PORTABLE_OPTIMIZATION.md's
+# model-strategy section. Every build to date resolves models from the
+# user's own ~/.EasyOCR/model cache at runtime (desktop/runtime_context.py's
+# resolve_easyocr_model_dir()), not from anything this spec bundles.
 
+import os
 import sys
 from pathlib import Path
 
@@ -29,6 +24,8 @@ block_cipher = None
 
 REPO_ROOT = Path.cwd()
 ENTRY_SCRIPT = str(REPO_ROOT / "desktop" / "main.py")
+ICON_PATH = str(REPO_ROOT / "packaging" / "assets" / "app_icon.ico")
+VERSION_FILE = str(REPO_ROOT / "packaging" / "version_info.txt")
 
 # Conservative, evidence-based hidden imports -- added because a first
 # packaged-run failure showed each one was missing, not speculatively.
@@ -38,20 +35,59 @@ hiddenimports = [
     "cv2",
 ]
 
+# Evidence-based excludes only -- see docs/V6_7_PORTABLE_OPTIMIZATION.md's
+# dependency-analysis section for how each was verified, not guessed:
+#
+# - paddle/paddleocr/paddlex: not installed in this venv at all (Paddle
+#   must never come back through packaging archaeology -- item 41).
+# - pandas/pyarrow: confirmed via `pip show --Required-by` to be pulled
+#   in ONLY by streamlit (which desktop/main.py's import graph never
+#   touches), and empirically confirmed absent from sys.modules after a
+#   real EasyOCR construction + inference call. PyInstaller's static
+#   analysis over-approximates by including torch's own optional,
+#   never-executed integrations (e.g. torch.utils.tensorboard's
+#   conditional pandas import) -- these two packages are a build-time
+#   false positive, not a runtime dependency.
+#
+# scipy is deliberately NOT excluded here -- the same empirical check
+# showed 160 scipy submodules actually get imported during real EasyOCR
+# inference (it's a genuine transitive runtime dependency of EasyOCR and
+# scikit-image). Excluding it would break Fast OCR.
+excludes = ["paddle", "paddleocr", "paddlex", "pandas", "pyarrow"]
+
+# Seam for a future release build to bundle EasyOCR model weights instead
+# of relying on the external ~/.EasyOCR cache (items 18/19/24) -- unused
+# unless LOCAL_LENS_RELEASE_MODEL_DIR is explicitly set, which no V6.7
+# build does. When set, every required weight file must already be
+# present; a missing file fails the build immediately and explicitly
+# rather than silently shipping an incomplete model set or downloading
+# anything. See docs/V6_7_PORTABLE_OPTIMIZATION.md for the exact files
+# this checks and why.
+_REQUIRED_MODEL_FILES = ("craft_mlt_25k.pth", "english_g2.pth", "arabic.pth")
+datas = []
+_release_model_dir = os.environ.get("LOCAL_LENS_RELEASE_MODEL_DIR")
+if _release_model_dir:
+    model_dir = Path(_release_model_dir)
+    missing = [f for f in _REQUIRED_MODEL_FILES if not (model_dir / f).is_file()]
+    if missing:
+        raise SystemExit(
+            f"LOCAL_LENS_RELEASE_MODEL_DIR is set to {model_dir} but is missing: {', '.join(missing)}. "
+            "Refusing to produce an incomplete bundled-model build -- populate every required file "
+            "(see docs/V6_7_PORTABLE_OPTIMIZATION.md's model-strategy section) or unset "
+            "LOCAL_LENS_RELEASE_MODEL_DIR to build with the external-cache strategy instead."
+        )
+    datas.append((str(model_dir), "models/easyocr"))
+
 a = Analysis(
     [ENTRY_SCRIPT],
     pathex=[str(REPO_ROOT)],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Paddle must never come back through packaging archaeology (item 38)
-    # -- it is not installed in this venv, but excluding it explicitly
-    # documents the intent even though PyInstaller can only ever bundle
-    # what's actually importable.
-    excludes=["paddle", "paddleocr", "paddlex"],
+    excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -76,6 +112,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON_PATH,
+    version=VERSION_FILE,
 )
 
 coll = COLLECT(

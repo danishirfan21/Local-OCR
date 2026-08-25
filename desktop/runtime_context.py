@@ -42,11 +42,35 @@ def resource_path(*parts: str) -> Path:
 
 
 def easyocr_model_directory() -> Path:
-    """Where Fast OCR looks for EasyOCR's model weights. For the V6.6
-    packaging smoke test this intentionally still resolves to the user's
-    existing development cache (`~/.EasyOCR/model`) rather than a bundled
-    copy -- see docs/V6_6_PACKAGING_SMOKE_TEST.md's model-strategy
-    section for why, and item 16 for the future bundled-resource path
-    this function is the seam for. Never hardcodes a specific user's home
+    """The user's own EasyOCR development cache (`~/.EasyOCR/model`) --
+    where EasyOCR itself defaults to looking, and where both the V6.6 and
+    V6.7 builds get their model weights from (see
+    docs/V6_6_PACKAGING_SMOKE_TEST.md / docs/V6_7_PORTABLE_OPTIMIZATION.md's
+    model-strategy sections). Never hardcodes a specific user's home
     directory -- `Path.home()` resolves per-machine."""
     return Path.home() / ".EasyOCR" / "model"
+
+
+def resolve_easyocr_model_dir() -> Path:
+    """Where Fast OCR should actually look for EasyOCR's model weights --
+    the one function every caller should use instead of picking a path
+    directly, so packaged-vs-dev model resolution stays centralized here
+    (item 18).
+
+    Checks a *bundled* `models/easyocr/` resource directory first (the
+    seam for a future release build that ships model weights alongside
+    the packaged exe -- see item 19/24), falling back to the user's own
+    development cache. No build has ever populated the bundled directory
+    as of V6.7 -- it will simply not exist, and this always falls
+    through to `easyocr_model_directory()` today. That fallback is not a
+    silent-download risk: `local_lens.engines.easyocr_engine`'s
+    `download_enabled=False` (wired from desktop/ocr_service_factory.py)
+    is what actually prevents a surprise download if the resolved
+    directory turns out to be missing or incomplete -- this function only
+    decides *where* to look, never whether it's acceptable to fetch
+    something that isn't there.
+    """
+    bundled = resource_path("models", "easyocr")
+    if bundled.is_dir():
+        return bundled
+    return easyocr_model_directory()
