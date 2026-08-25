@@ -55,3 +55,50 @@ def test_spec_never_hardcodes_a_specific_users_home_directory():
     assert "danis" not in text.lower()
     assert "c:\\users\\" not in text.lower()
     assert "%userprofile%" not in text.lower()
+
+
+def test_spec_excludes_pandas_and_pyarrow_but_keeps_scipy():
+    # pandas/pyarrow: proven (not guessed) to come only from streamlit,
+    # never touched by the real desktop runtime path -- see
+    # docs/V6_7_PORTABLE_OPTIMIZATION.md's dependency-analysis section.
+    # scipy: proven to be a genuine EasyOCR runtime dependency (160
+    # submodules actually imported during real inference) -- must NEVER
+    # be excluded, so this test also guards against that regression.
+    text = _spec_text()
+    excludes_start = text.index("excludes = [")
+    excludes_end = text.index("]", excludes_start)
+    excludes_value = text[excludes_start:excludes_end]
+    assert '"pandas"' in excludes_value
+    assert '"pyarrow"' in excludes_value
+    assert '"scipy"' not in excludes_value
+
+
+def test_spec_references_the_generated_icon():
+    text = _spec_text()
+    assert "app_icon.ico" in text
+    assert "icon=ICON_PATH" in text
+
+
+def test_spec_references_version_metadata():
+    text = _spec_text()
+    assert "version_info.txt" in text
+    assert "version=VERSION_FILE" in text
+
+
+def test_spec_validates_release_model_dir_before_bundling():
+    # The future bundled-model seam (items 18/19/24) must fail loudly on
+    # an incomplete model directory, never silently ship a partial set or
+    # fall through to a download.
+    text = _spec_text()
+    assert "LOCAL_LENS_RELEASE_MODEL_DIR" in text
+    assert "raise SystemExit" in text
+    assert "craft_mlt_25k.pth" in text
+    assert "english_g2.pth" in text
+    assert "arabic.pth" in text
+
+
+def test_icon_and_version_files_actually_exist():
+    icon_path = _SPEC_PATH.parent / "assets" / "app_icon.ico"
+    version_path = _SPEC_PATH.parent / "version_info.txt"
+    assert icon_path.is_file()
+    assert version_path.is_file()

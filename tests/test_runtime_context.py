@@ -43,3 +43,18 @@ def test_resource_path_falls_back_to_app_base_dir_when_not_frozen():
 def test_easyocr_model_directory_never_hardcodes_a_specific_users_home():
     result = runtime_context.easyocr_model_directory()
     assert result == Path.home() / ".EasyOCR" / "model"
+
+
+def test_resolve_easyocr_model_dir_falls_back_to_external_cache_when_no_bundle_exists():
+    # No build has ever populated a bundled models/easyocr/ directory --
+    # this is the real, current behavior of every V6.6/V6.7 build.
+    result = runtime_context.resolve_easyocr_model_dir()
+    assert result == runtime_context.easyocr_model_directory()
+
+
+def test_resolve_easyocr_model_dir_prefers_a_bundled_directory_when_present(monkeypatch, tmp_path):
+    bundled = tmp_path / "models" / "easyocr"
+    bundled.mkdir(parents=True)
+    monkeypatch.setattr(runtime_context, "resource_path", lambda *parts: tmp_path.joinpath(*parts))
+    result = runtime_context.resolve_easyocr_model_dir()
+    assert result == bundled

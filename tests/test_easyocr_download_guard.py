@@ -17,9 +17,10 @@ from local_lens.engines.easyocr_engine import EasyOCREngine, _reader_cache
 
 
 class _FakeReader:
-    def __init__(self, langs, download_enabled=True):
+    def __init__(self, langs, download_enabled=True, model_storage_directory=None):
         self.langs = langs
         self.download_enabled = download_enabled
+        self.model_storage_directory = model_storage_directory
 
     def readtext(self, image_np):
         return []
@@ -47,6 +48,19 @@ def test_download_enabled_false_is_passed_through():
     engine.extract(Image.new("RGB", (8, 8)), ["en"])
     reader = next(iter(_reader_cache.values()))
     assert reader.download_enabled is False
+
+
+def test_model_storage_directory_is_passed_through():
+    engine = EasyOCREngine(model_storage_directory="D:\\fake\\models")
+    engine.extract(Image.new("RGB", (8, 8)), ["en"])
+    reader = next(iter(_reader_cache.values()))
+    assert reader.model_storage_directory == "D:\\fake\\models"
+
+
+def test_different_model_storage_directories_get_separate_cached_readers():
+    EasyOCREngine(model_storage_directory="D:\\a").extract(Image.new("RGB", (8, 8)), ["en"])
+    EasyOCREngine(model_storage_directory="D:\\b").extract(Image.new("RGB", (8, 8)), ["en"])
+    assert len(_reader_cache) == 2
 
 
 def test_friendly_model_error_message_translates_file_not_found():
