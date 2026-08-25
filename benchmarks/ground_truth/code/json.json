@@ -1,0 +1,4 @@
+{
+  "kind": "text",
+  "text": "{\n  \"name\": \"Local Lens\",\n  \"mode\": \"fast\",\n  \"engines\": [\"easyocr\", \"paddleocr\"]\n}"
+}

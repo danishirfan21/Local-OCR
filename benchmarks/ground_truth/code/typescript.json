@@ -1,0 +1,4 @@
+{
+  "kind": "text",
+  "text": "function greet(name: string): string {\n  if (name) {\n    return `Hi ${name}`;\n  }\n  return \"\";\n}"
+}

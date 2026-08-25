@@ -1,0 +1,18 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Product",
+      "نام"
+    ],
+    [
+      "Pen",
+      "قلم"
+    ],
+    [
+      "Book",
+      "کتاب"
+    ]
+  ],
+  "has_header": true
+}

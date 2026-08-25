@@ -1,0 +1,21 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Account",
+      "Amount",
+      "Change"
+    ],
+    [
+      "Revenue",
+      "$12,450.00",
+      "+4.2%"
+    ],
+    [
+      "Refunds",
+      "-$320.50",
+      "-1.1%"
+    ]
+  ],
+  "has_header": true
+}

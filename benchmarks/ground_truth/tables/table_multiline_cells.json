@@ -1,0 +1,14 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Item",
+      "Notes"
+    ],
+    [
+      "Widget\n(large)",
+      "In stock\nships free"
+    ]
+  ],
+  "has_header": true
+}

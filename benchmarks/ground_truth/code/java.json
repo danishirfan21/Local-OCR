@@ -1,0 +1,4 @@
+{
+  "kind": "text",
+  "text": "public class Greeter {\n    public String greet(String name) {\n        return \"Hi \" + name;\n    }\n}"
+}

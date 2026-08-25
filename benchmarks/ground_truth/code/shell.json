@@ -1,0 +1,4 @@
+{
+  "kind": "text",
+  "text": "$ pip install -r requirements.txt\n$ streamlit run app.py --server.port 8501"
+}

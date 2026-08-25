@@ -1,0 +1,18 @@
+{
+  "kind": "table",
+  "rows": [
+    [
+      "Region",
+      "Region",
+      "Q1",
+      "Q2"
+    ],
+    [
+      "North",
+      "North",
+      "10",
+      "20"
+    ]
+  ],
+  "has_header": true
+}
