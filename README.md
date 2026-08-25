@@ -222,8 +222,10 @@ own workflow is fully proven). Stack: PySide6 (Qt 6), single Python
 process, importing `local_lens/` directly -- no Rust/Tauri, no IPC
 boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
 `docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design,
-`docs/V6_3_CAPTURE.md` for the capture workflow, and
-`docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze.
+`docs/V6_3_CAPTURE.md` for the capture workflow,
+`docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze, and
+`docs/V6_5_RELEASE_READINESS.md` for Settings, startup behavior, secret
+storage, and packaging research.
 
 - **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
   `python -m desktop.main`): open an existing image, run Fast OCR on a
@@ -247,7 +249,16 @@ boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
   prompt -- Fast and Deep results sit in separate tabs, and a Deep failure
   never touches the Fast result. EasyOCR is warmed up in the background at
   startup (~10s cold vs. ~0.3-0.6s warm, measured on this machine).
-- **V6.5** — planned next: Settings/packaging polish (exact scope pending).
+- **V6.5 — Release readiness** ✓: an expanded Settings dialog (General /
+  Behavior / Deep Analyze), user-level "Start Local Lens with Windows"
+  (HKCU Run key, no Administrator), a `--start-hidden` startup mode, an
+  opt-in "Auto-copy Fast result after capture", an opt-in "Close popup
+  after successful copy", a "Capture Now" button and readiness/Deep-status
+  indicators on the main window, and packaging research (see
+  `docs/V6_5_RELEASE_READINESS.md`) -- no build was executed.
+- **V6.6** — planned next: a bounded PyInstaller onedir portable-build
+  smoke test on `D:`, if it stays within the size/footprint this
+  milestone's research found safe.
 
 ## Roadmap (not built)
 
