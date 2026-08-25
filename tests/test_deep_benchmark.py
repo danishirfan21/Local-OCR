@@ -144,3 +144,13 @@ def test_parse_structured_reply_uses_languages_list_when_language_missing():
     reply = '{"text": "x", "languages": ["ur", "en"], "blocks": []}'
     parsed = parse_structured_reply(reply)
     assert parsed.language == "ur"
+
+
+def test_parse_structured_reply_falls_back_to_top_level_text_when_blocks_empty():
+    # A provider can validly fill "text" and leave "blocks" empty -- the
+    # schema doesn't require per-block granularity. This must not silently
+    # drop the content (regression: it used to).
+    reply = '{"text": "the full extracted text", "blocks": []}'
+    parsed = parse_structured_reply(reply)
+    assert parsed.blocks
+    assert parsed.blocks[0].text == "the full extracted text"

@@ -122,10 +122,16 @@ class OpenAICompatibleVisionProvider:
         except (KeyError, IndexError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise DeepAnalysisBadResponse(f"Could not parse response from {self.base_url}: {exc}") from exc
 
-        return self._to_document_result(content, langs, latency_ms, response.status)
+        usage = body.get("usage")
+        return self._to_document_result(content, langs, latency_ms, response.status, usage)
 
     def _to_document_result(
-        self, content: str, langs: list[str], latency_ms: float, http_status: int
+        self,
+        content: str,
+        langs: list[str],
+        latency_ms: float,
+        http_status: int,
+        usage: dict | None = None,
     ) -> DocumentResult:
         parsed = parse_structured_reply(content)
 
@@ -140,6 +146,11 @@ class OpenAICompatibleVisionProvider:
         }
         if parsed.content_type:
             metadata["content_type"] = parsed.content_type
+        if isinstance(usage, dict):
+            metadata["usage"] = {
+                "input_tokens": usage.get("prompt_tokens"),
+                "output_tokens": usage.get("completion_tokens"),
+            }
 
         return DocumentResult(
             text="",

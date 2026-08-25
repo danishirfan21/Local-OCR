@@ -63,6 +63,15 @@ def parse_structured_reply(content: str) -> ParsedReply:
             if block_text:
                 blocks.append(TextBlock(text=block_text, confidence=None, bbox=bbox))
 
+        # The schema's top-level "text" is the primary full-text output --
+        # a provider that fills "text" but leaves "blocks" empty (a common,
+        # valid response shape; nothing requires per-block granularity) must
+        # not have its content silently dropped just because block-based
+        # reconstruction is what downstream code (OCRService.process's
+        # reconstruct_text, and this project's own benchmark scoring) reads.
+        if not blocks and text.strip():
+            blocks = [TextBlock(text=text, confidence=None, bbox=None)]
+
         return ParsedReply(
             text=text,
             language=language,

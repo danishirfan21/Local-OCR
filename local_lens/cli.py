@@ -127,7 +127,7 @@ def cmd_providers(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_benchmark_deep(args: argparse.Namespace) -> int:
+def _cmd_benchmark_deep_dry_run() -> int:
     from local_lens.deep_analysis.benchmark import estimate_request_cost
     from local_lens.deep_analysis.benchmark_cases import build_deep_benchmark_cases
     from local_lens.deep_analysis.finalists import (
@@ -136,17 +136,8 @@ def cmd_benchmark_deep(args: argparse.Namespace) -> int:
         PROPOSED_FINALISTS,
     )
 
-    if not args.dry_run:
-        print(
-            "error: real (non-dry-run) execution is not implemented in this build -- "
-            "it would make paid remote API calls, which requires your explicit approval "
-            "outside this CLI. Use --dry-run. See docs/REMOTE_BENCHMARK_PLAN.md.",
-            file=sys.stderr,
-        )
-        return 1
-
     cases = build_deep_benchmark_cases()
-    print(f"Deep Analyze benchmark -- DRY RUN (zero network calls)\n")
+    print("Deep Analyze benchmark -- DRY RUN (zero network calls)\n")
     print(f"Cases: {len(cases)}")
     missing = [c for c in cases if not c.image_path.exists()]
     for case in cases:
@@ -168,13 +159,113 @@ def cmd_benchmark_deep(args: argparse.Namespace) -> int:
         subtotal = round(cost_per_request * n_requests, 4)
         total_requests += n_requests
         total_max_cost += subtotal
-        cost_note = "GPU-time billed, not per-token -- see docs" if finalist.pricing.input_per_million == 0 else f"~${subtotal:.4f} max"
+        cost_note = (
+            "GPU-time billed, not per-token -- see docs"
+            if finalist.pricing.input_per_million == 0
+            else f"~${subtotal:.4f} max"
+        )
         print(f"  {finalist.label:38} {n_requests} requests, {cost_note}")
 
     print(f"\nTotal requests if fully executed: {total_requests}")
     print(f"Estimated maximum token-billed cost: ~${total_max_cost:.2f} (excludes GPU-time-billed candidates)")
     print("\nNo network call was made. See docs/REMOTE_BENCHMARK_PLAN.md for the full proposal and approval checklist.")
     return 0
+
+
+def _cmd_benchmark_deep_preflight() -> int:
+    from local_lens.deep_analysis.runner import run_preflight
+
+    report = run_preflight()
+    print(f"Deep benchmark {report.benchmark_version}\n")
+    print(f"Fixtures: {report.fixture_count}\n")
+
+    for f in report.finalists:
+        print(f.label)
+        print(f"  configured: {'yes' if f.configured else 'no'}")
+        if not f.executable:
+            print(f"  status: not executable ({f.unavailable_reason})")
+        else:
+            print(f"  requests: {f.requests}")
+            print(f"  estimated max cost: ${f.estimated_max_cost_usd:.4f}")
+        print()
+
+    print(f"Total executable requests: {report.total_executable_requests}")
+    print(f"Estimated maximum API cost: ${report.estimated_max_cost_usd:.4f}")
+
+    if report.warnings:
+        print("\nWarnings:")
+        for w in report.warnings:
+            print(f"  - {w}")
+
+    print("\nNo requests sent.")
+    return 0
+
+
+def _cmd_benchmark_deep_run(args: argparse.Namespace) -> int:
+    if not args.confirm_remote:
+        print("Remote benchmark execution requires --confirm-remote.\nNo requests were sent.", file=sys.stderr)
+        return 1
+    if args.max_cost_usd is None:
+        print("Remote benchmark execution requires --max-cost-usd <ceiling>.\nNo requests were sent.", file=sys.stderr)
+        return 1
+
+    from local_lens.deep_analysis.runner import BudgetExceeded, NoExecutableFinalists, execute_benchmark, run_preflight
+
+    preflight = run_preflight()
+    print(f"Estimated maximum: ${preflight.estimated_max_cost_usd:.4f}")
+    print(f"Configured ceiling: ${args.max_cost_usd:.4f}\n")
+
+    if preflight.estimated_max_cost_usd > args.max_cost_usd:
+        print("ABORTED.\nNo requests sent.", file=sys.stderr)
+        return 1
+
+    print("Proceeding.\n")
+
+    try:
+        summary = execute_benchmark(
+            max_cost_usd=args.max_cost_usd,
+            output_dir=Path(args.output),
+            confirm_remote=True,
+        )
+    except NoExecutableFinalists as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except BudgetExceeded as exc:
+        print(f"ABORTED: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Run id: {summary.run_id}")
+    print(f"Results written to: {summary.output_dir}")
+    print(f"Requests made: {len(summary.results)}")
+    print(f"Total estimated cost: ${summary.total_estimated_cost_usd:.4f}")
+    if summary.dropped_finalists:
+        print("Dropped finalists:")
+        for label, reason in summary.dropped_finalists.items():
+            print(f"  {label}: {reason}")
+    if summary.aborted:
+        print(f"\nABORTED mid-run: {summary.abort_reason}")
+        return 1
+    return 0
+
+
+def cmd_benchmark_deep(args: argparse.Namespace) -> int:
+    modes_selected = sum([bool(args.dry_run), bool(args.preflight), bool(args.run)])
+    if modes_selected == 0:
+        print(
+            "error: choose one of --dry-run, --preflight, or --run (with --confirm-remote --max-cost-usd). "
+            "See docs/REMOTE_BENCHMARK_EXECUTION.md.",
+            file=sys.stderr,
+        )
+        return 1
+    if modes_selected > 1:
+        print("error: choose only one of --dry-run, --preflight, --run.", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        return _cmd_benchmark_deep_dry_run()
+    if args.preflight:
+        return _cmd_benchmark_deep_preflight()
+    return _cmd_benchmark_deep_run(args)
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
@@ -218,11 +309,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     providers.set_defaults(func=cmd_providers)
 
-    benchmark_deep = subparsers.add_parser(
-        "benchmark-deep", help="Deep Analyze provider bake-off (dry-run only in this build)"
+    benchmark_deep = subparsers.add_parser("benchmark-deep", help="Deep Analyze provider bake-off")
+    benchmark_deep.add_argument(
+        "--dry-run", action="store_true", help="Enumerate cases/candidates/cost estimate. Zero network calls."
     )
     benchmark_deep.add_argument(
-        "--dry-run", action="store_true", help="Required -- enumerate cases/candidates/cost, make zero network calls"
+        "--preflight",
+        action="store_true",
+        help="Report configured/executable finalists, request count, and max cost. Zero network calls.",
+    )
+    benchmark_deep.add_argument(
+        "--run", action="store_true", help="Execute the real bake-off. Requires --confirm-remote and --max-cost-usd."
+    )
+    benchmark_deep.add_argument(
+        "--confirm-remote",
+        action="store_true",
+        help="Required alongside --run -- acknowledges this will make real, potentially billable API calls.",
+    )
+    benchmark_deep.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=None,
+        help="Required alongside --run -- hard ceiling; execution refuses to start if the preflight estimate exceeds it.",
+    )
+    benchmark_deep.add_argument(
+        "--output", default="benchmarks_remote/results", help="Output directory for --run (default: %(default)s)"
     )
     benchmark_deep.set_defaults(func=cmd_benchmark_deep)
 

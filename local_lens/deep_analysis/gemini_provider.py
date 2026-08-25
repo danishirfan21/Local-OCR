@@ -1,25 +1,20 @@
-"""Deep Analyze provider for Anthropic's Messages API.
+"""Deep Analyze provider for Google Gemini's native `generateContent` API.
 
-Unlike Gemini (OpenAI-compatible beta endpoint), Fireworks, or a
-self-hosted vLLM server, Claude's Messages API is genuinely NOT
-OpenAI-compatible -- confirmed by research, not assumed:
+Google does run an OpenAI-compatibility beta endpoint, but Google's own
+docs mark it "still in beta while we extend feature support," and its
+structured-output mechanism (`response_format`) doesn't map onto Gemini's
+native one (`response_mime_type` + `response_schema`) -- see
+docs/DEEP_PROVIDER_EVALUATION.md's Gemini section. This adapter targets the
+native REST API directly instead of routing through the beta compatibility
+layer, so structured JSON output and usage-metadata extraction are both
+real, not best-effort through a shim.
 
-  OpenAI:    {"type": "image_url", "image_url": {"url": "data:...;base64,..."}}
-  Anthropic: {"type": "image", "source": {"type": "base64",
-                                           "media_type": "image/png",
-                                           "data": "<base64>"}}
-
-different field names, different nesting, and the endpoint/auth scheme
-differ too (`x-api-key` + `anthropic-version` headers vs. `Authorization:
-Bearer`, `/v1/messages` vs. `/v1/chat/completions`). This is exactly the
-"protocol differences require it" case the architecture calls for a
-dedicated adapter, rather than trying to force it through
-OpenAICompatibleVisionProvider (see local_lens/deep_analysis/base.py's
-module docstring).
-
-Reuses the same structured prompt (prompts.py) and reply parser
-(response_parsing.py) as the OpenAI-compatible provider so bake-off
-comparisons stay apples-to-apples.
+Secret hygiene note: Gemini's REST docs commonly show the API key as a
+`?key=...` query parameter. This adapter deliberately uses the
+`x-goog-api-key` HEADER instead (documented as an equally valid current
+auth method) so the key is never embedded in a URL that could end up in a
+log line, error message, or stored request record -- consistent with this
+project's "never log a credential" rule.
 """
 
 from __future__ import annotations
@@ -49,13 +44,12 @@ from local_lens.deep_analysis.prompts import DEEP_ANALYSIS_PROMPT
 from local_lens.deep_analysis.response_parsing import parse_structured_reply
 from local_lens.models import DocumentResult
 
-ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
+DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
-class AnthropicProvider:
-    name = "anthropic"
+class GeminiProvider:
+    name = "gemini"
 
     def __init__(
         self,
@@ -74,9 +68,9 @@ class AnthropicProvider:
         self._transport = transport
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
+        headers = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["x-api-key"] = self.api_key
+            headers["x-goog-api-key"] = self.api_key
         return headers
 
     def _encode_image(self, image: Image.Image) -> str:
@@ -86,27 +80,20 @@ class AnthropicProvider:
 
     def extract(self, image: Image.Image, langs: list[str]) -> DocumentResult:
         payload = {
-            "model": self.model,
-            "max_tokens": 4096,
-            "messages": [
+            "contents": [
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": DEEP_ANALYSIS_PROMPT},
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": self._encode_image(image),
-                            },
-                        },
-                    ],
+                    "parts": [
+                        {"text": DEEP_ANALYSIS_PROMPT},
+                        {"inline_data": {"mime_type": "image/png", "data": self._encode_image(image)}},
+                    ]
                 }
             ],
+            "generationConfig": {"response_mime_type": "application/json"},
         }
 
-        url = f"{self.base_url}/messages"
+        # Model + action are in the URL path (no key), matching Gemini's
+        # documented REST shape -- e.g. /v1beta/models/gemini-2.5-flash-lite:generateContent
+        url = f"{self.base_url}/models/{self.model}:generateContent"
         start = time.monotonic()
         try:
             response = post_json_with_retry(
@@ -121,21 +108,23 @@ class AnthropicProvider:
         if response.status in (401, 403):
             raise DeepAnalysisAuthError(
                 f"{self.base_url} rejected the request as unauthorized (HTTP {response.status}). "
-                "Check LOCAL_LENS_DEEP_API_KEY."
+                "Check the Gemini API key."
             )
         if response.status == 429:
             raise DeepAnalysisRateLimited(f"{self.base_url} rate-limited the request (HTTP 429).")
         if response.status >= 500:
             raise DeepAnalysisServerError(f"{self.base_url} returned a server error (HTTP {response.status}).")
         if response.status >= 400:
+            # Gemini uses 400 for some invalid-API-key cases too, not just
+            # malformed requests -- surfaced as a generic error rather than
+            # guessing which, since the body's exact shape isn't guaranteed.
             raise DeepAnalysisError(f"{self.base_url} rejected the request (HTTP {response.status}).")
 
         try:
             body = response.json()
-            content_blocks = body["content"]
-            text_content = "".join(
-                block.get("text", "") for block in content_blocks if block.get("type") == "text"
-            )
+            candidates = body["candidates"]
+            parts = candidates[0]["content"]["parts"]
+            text_content = "".join(part.get("text", "") for part in parts)
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise DeepAnalysisBadResponse(f"Could not parse response from {self.base_url}: {exc}") from exc
 
@@ -152,11 +141,11 @@ class AnthropicProvider:
         if parsed.content_type:
             metadata["content_type"] = parsed.content_type
 
-        usage = body.get("usage")
+        usage = body.get("usageMetadata")
         if isinstance(usage, dict):
             metadata["usage"] = {
-                "input_tokens": usage.get("input_tokens"),
-                "output_tokens": usage.get("output_tokens"),
+                "input_tokens": usage.get("promptTokenCount"),
+                "output_tokens": usage.get("candidatesTokenCount"),
             }
 
         return DocumentResult(

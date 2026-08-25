@@ -49,3 +49,11 @@ desktop.ini
 # (ground_truth/ JSON is committed -- it's small, human-readable, and useful
 # as reference even without regenerating the images)
 benchmarks/samples/**/*.png
+
+# Deep Analyze remote bake-off output -- run-specific artifacts (sanitized
+# of secrets, but still per-machine/per-run output, not something to check
+# in). See docs/REMOTE_BENCHMARK_EXECUTION.md.
+benchmarks_remote/results/
+
+# Never commit real provider credentials
+.env

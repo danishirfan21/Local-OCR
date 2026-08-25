@@ -85,10 +85,76 @@ def test_providers_reports_configured_deep_without_network_call(capsys, monkeypa
     assert "not tested (no network call made)" in out
 
 
-def test_benchmark_deep_requires_dry_run_flag(capsys):
+def test_benchmark_deep_requires_a_mode_flag(capsys):
     exit_code = cli.main(["benchmark-deep"])
     assert exit_code == 1
-    assert "not implemented" in capsys.readouterr().err
+    assert "choose one of" in capsys.readouterr().err
+
+
+def test_benchmark_deep_rejects_multiple_mode_flags(capsys):
+    exit_code = cli.main(["benchmark-deep", "--dry-run", "--preflight"])
+    assert exit_code == 1
+    assert "only one of" in capsys.readouterr().err
+
+
+def test_benchmark_deep_preflight_makes_no_network_call(capsys, monkeypatch):
+    import urllib.request
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("preflight must not open a network connection")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+
+    exit_code = cli.main(["benchmark-deep", "--preflight"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Fixtures: 12" in out
+    assert "No requests sent." in out
+    assert "Total executable requests:" in out
+
+
+def test_benchmark_deep_run_requires_confirm_remote(capsys):
+    exit_code = cli.main(["benchmark-deep", "--run", "--max-cost-usd", "0.25"])
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "requires --confirm-remote" in err
+    assert "No requests were sent." in err
+
+
+def test_benchmark_deep_run_requires_max_cost_usd(capsys):
+    exit_code = cli.main(["benchmark-deep", "--run", "--confirm-remote"])
+    assert exit_code == 1
+    assert "requires --max-cost-usd" in capsys.readouterr().err
+
+
+def test_benchmark_deep_run_aborts_when_estimate_exceeds_ceiling(capsys, monkeypatch):
+    monkeypatch.setenv("LOCAL_LENS_BENCHMARK_OPENAI_API_KEY", "x")
+    exit_code = cli.main(["benchmark-deep", "--run", "--confirm-remote", "--max-cost-usd", "0.0001"])
+    assert exit_code == 1
+    out = capsys.readouterr()
+    assert "ABORTED" in out.err
+    assert "No requests sent." in out.err
+    assert "Estimated maximum:" in out.out
+
+
+def test_benchmark_deep_run_with_nothing_configured_makes_no_network_call(capsys, monkeypatch):
+    import urllib.request
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("must not open a network connection when nothing is configured")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+    for var in [
+        "LOCAL_LENS_BENCHMARK_OPENAI_API_KEY",
+        "LOCAL_LENS_BENCHMARK_GEMINI_API_KEY",
+        "LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY",
+        "LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY",
+    ]:
+        monkeypatch.delenv(var, raising=False)
+
+    exit_code = cli.main(["benchmark-deep", "--run", "--confirm-remote", "--max-cost-usd", "10.0"])
+    assert exit_code == 1
+    assert "No configured, executable finalists" in capsys.readouterr().err
 
 
 def test_benchmark_deep_dry_run_makes_no_network_call(capsys, monkeypatch):

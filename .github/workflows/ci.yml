@@ -39,3 +39,12 @@ jobs:
         run: |
           python -m local_lens.cli --help
           python -m local_lens.cli doctor
+          python -m local_lens.cli providers
+          python -m local_lens.cli benchmark-deep --dry-run
+          python -m local_lens.cli benchmark-deep --preflight
+        env:
+          # Explicitly empty: CI must prove the preflight/dry-run/providers
+          # commands work correctly with zero provider credentials and make
+          # zero network calls -- no LOCAL_LENS_BENCHMARK_*/LOCAL_LENS_DEEP_*
+          # secret is ever set in this workflow.
+          LOCAL_LENS_DEEP_BASE_URL: ""

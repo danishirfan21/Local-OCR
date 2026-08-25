@@ -1,25 +1,38 @@
-# Remote Deep Analyze benchmark plan (not yet executed)
+# Remote Deep Analyze benchmark plan (execution framework built, not yet run)
 
-Companion to `docs/DEEP_PROVIDER_EVALUATION.md`. That document says what to
-test and why; this document says exactly what would run, how much it would
-cost at most, and what's needed before it's approved. **No request in this
-plan has been made.** `local-lens benchmark-deep --dry-run` (built this
-pass) runs everything up to but not including the actual network calls.
+Companion to `docs/DEEP_PROVIDER_EVALUATION.md` (what to test and why) and
+`docs/REMOTE_BENCHMARK_EXECUTION.md` (exactly how to run it, once
+approved). This document covers the finalists, corpus, and cost estimate.
+**No request has been made.** The full execution framework --
+`local_lens/deep_analysis/runner.py`, a dedicated Gemini adapter, canonical
+per-finalist config, cost-ceiling enforcement, and `local-lens
+benchmark-deep --preflight` / `--run` -- is now built and exercised only
+against mocked transports in tests; nothing in this codebase has made a
+real call to any of these providers.
 
 ## Finalists (5, not "every available model")
 
 Selected for diversity per the task's own guidance -- one strong
 proprietary general VLM, one cheap proprietary VLM, PaddleOCR-VL remote
-(mandatory, to actually answer whether self-hosting it is still worth it),
-one strong hosted open VLM, and one adapter-diversity test case:
+(kept in the registry to answer whether self-hosting it is still worth it,
+but excluded from execution -- see below), one strong hosted open VLM, and
+one adapter-diversity test case. Canonical config for each lives in
+`local_lens/deep_analysis/finalists.py`:
 
-| # | Label | `LOCAL_LENS_DEEP_PROVIDER` | Model | Why this one |
-|---|---|---|---|---|
-| 1 | OpenAI GPT-5 | `openai-compatible` | `gpt-5` | Strong proprietary baseline; zero new adapter code |
-| 2 | Gemini 2.5 Flash-Lite | `openai-compatible` (Gemini's OpenAI-compat beta endpoint) | `gemini-2.5-flash-lite` | Cheapest proprietary option; tests whether the beta OpenAI-compat layer holds up for OCR-shaped requests |
-| 3 | PaddleOCR-VL-1.6 (self-hosted vLLM) | `paddle-vllm` | `PaddleOCR-VL-1.6` | The original candidate -- must stay in to answer "is self-hosting still worth it" with data, not assumption |
-| 4 | Qwen2.5-VL-72B-Instruct (Fireworks AI) | `openai-compatible` | `accounts/fireworks/models/qwen2p5-vl-72b-instruct` | Strongest hosted-open-VLM catalog found (confirmed, not inferred); zero new adapter code |
-| 5 | Claude Sonnet 5 | `anthropic` | `claude-sonnet-5` | Tests whether Anthropic's own explicit low-confidence/anti-hallucination vision guidance produces a measurably lower `extra_content_rate`; the one finalist that needed (and got) a dedicated adapter |
+| # | Label | Adapter | Model | Credential env var | Why this one |
+|---|---|---|---|---|---|
+| 1 | OpenAI GPT-5 | `OpenAICompatibleVisionProvider` | `gpt-5` | `LOCAL_LENS_BENCHMARK_OPENAI_API_KEY` | Strong proprietary baseline; zero new adapter code |
+| 2 | Gemini 2.5 Flash-Lite | `GeminiProvider` (native, not the OpenAI-compat beta layer) | `gemini-2.5-flash-lite` | `LOCAL_LENS_BENCHMARK_GEMINI_API_KEY` | Cheapest proprietary option; native adapter gives real `response_mime_type`/`usageMetadata` support instead of routing through Google's own beta compatibility shim |
+| 3 | PaddleOCR-VL-1.6 (remote vLLM) | none -- no endpoint provisioned | `PaddleOCR-VL-1.6` | none | **Excluded from execution** (`executable_in_first_run=False`) -- listed so the comparison isn't silently missing it, not because it's runnable |
+| 4 | Qwen2.5-VL-72B-Instruct (Fireworks AI) | `OpenAICompatibleVisionProvider` | `accounts/fireworks/models/qwen2p5-vl-72b-instruct` | `LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY` | Strongest hosted-open-VLM catalog found (confirmed, not inferred); zero new adapter code |
+| 5 | Claude Sonnet 5 | `AnthropicProvider` (dedicated -- Messages API confirmed non-OpenAI-compatible) | `claude-sonnet-5` | `LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY` | Tests whether Anthropic's own explicit low-confidence/anti-hallucination vision guidance produces a measurably lower `extra_content_rate` |
+
+Model names/endpoints are recorded from documentation research
+(`docs/DEEP_PROVIDER_EVALUATION.md`), not confirmed by a live API call
+(that would itself be a request) -- if a model name has changed by
+execution time, that finalist's requests will fail cleanly and it gets
+dropped after repeated failures (see `docs/REMOTE_BENCHMARK_EXECUTION.md`
+"Abort and drop conditions"), not silently substituted.
 
 Deliberately excluded from the first round, with reasons: Claude Opus 5/
 Fable 5 (too expensive to justify before cheaper Sonnet 5 data exists),
@@ -93,52 +106,59 @@ and isn't included in that figure.**
 ## What's needed before this runs for real
 
 1. **API keys** for OpenAI, Google (Gemini), Anthropic, and Fireworks AI --
-   none are configured in this environment (`local-lens providers`
-   confirms Deep is currently unconfigured).
-2. **A decision on where to run PaddleOCR-VL's vLLM server** -- Modal was
-   the cleaner-documented managed-GPU option found this pass (first-party
-   vLLM-container deploy guide, true per-second scale-to-zero billing);
-   RunPod Serverless is the alternative. Either requires provisioning
-   infrastructure, which this task was explicitly told not to do without
-   separate approval.
-3. **Explicit user approval to spend money** -- even though the token-
-   billed total is small (well under $1), the task's own instructions are
-   clear: no paid API request happens without approval, regardless of how
-   small.
+   `local-lens benchmark-deep --preflight` (zero network calls) reports
+   exactly which of these are currently configured; as of this pass, none
+   are.
+2. **Explicit user approval to spend money** -- even though the token-
+   billed total is small (well under $1), no paid API request happens
+   without approval, regardless of how small. `--run` itself will not
+   proceed without both `--confirm-remote` and `--max-cost-usd`.
+
+PaddleOCR-VL is deliberately out of scope for this first executable round
+entirely -- it's excluded in `finalists.py`
+(`executable_in_first_run=False`), so no GPU-provisioning decision is
+needed to run the first bake-off. Provisioning a remote PaddleOCR-VL
+endpoint (Modal was the cleaner-documented managed-GPU option found in
+research; RunPod Serverless the alternative) remains a separate, later
+decision if the first round's results make it worth revisiting.
 
 ## Exact command that would execute the bake-off (NOT run in this session)
 
 ```bash
-# 1. Configure each finalist's credentials (one at a time, or via
-#    separate LOCAL_LENS_DEEP_* env files per finalist -- the current
-#    config model supports one configured Deep provider at a time).
-# 2. Then, once real execution is implemented (see "Not yet implemented" below):
-local-lens benchmark-deep --run --output benchmarks_remote/results/
+# 1. Check what's configured and what it would cost -- zero network calls:
+local-lens benchmark-deep --preflight
+
+# 2. Configure whichever finalists' credentials you want included:
+export LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=...
+export LOCAL_LENS_BENCHMARK_GEMINI_API_KEY=...
+export LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY=...
+export LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY=...
+
+# 3. Only after reviewing step 1's output again with real credentials set:
+local-lens benchmark-deep \
+  --run \
+  --confirm-remote \
+  --max-cost-usd 0.25 \
+  --output benchmarks_remote/results/
 ```
 
-**Not yet implemented**: only `local-lens benchmark-deep --dry-run` exists
-in this codebase. A real `--run` mode was deliberately not built this pass
--- building it would invite running it, and the task was explicit that no
-paid request should happen without approval. Implementing `--run` is a
-small, mechanical follow-up once finalists/keys are approved: loop over
-`(finalist, case)` pairs, call `DeepAnalysisProvider.extract()`, score with
-the metrics in `docs/DEEP_PROVIDER_EVALUATION.md` section 5, and write
-sanitized results (see below) to `benchmarks_remote/results/`.
+Full detail on flags, output structure, abort conditions, and privacy
+handling: `docs/REMOTE_BENCHMARK_EXECUTION.md`.
 
-## Result archival (once execution is approved)
+## Result archival
 
-Planned location: `benchmarks_remote/results/<timestamp>/<finalist>/<case_id>.json`.
-
-Must never contain: API keys, `Authorization`/`x-api-key` header values,
-signed URLs, or any other credential (the same `redact_headers()` used in
-production error paths should gate what gets written). Must contain: the
-provider/model label, latency, HTTP status, the parsed `DocumentResult`
-fields, and the computed metric values -- not raw request/response bodies
-verbatim unless separately reviewed for secrets first.
+`benchmarks_remote/results/<run-id>/` -- `manifest.json` (frozen corpus
+with per-fixture hashes), `results.json` (one sanitized result per
+request), `summary.json` (run-level outcome), `raw/<finalist>__<case_id>
+.json` (sanitized parsed response per request). Every write passes through
+`local_lens/deep_analysis/sanitize.py`, which actively strips API keys,
+`Authorization`/`x-api-key`/`x-goog-api-key` header values, and any
+credential-shaped URL query parameter -- not merely trusts callers to have
+already removed them. This whole directory is gitignored.
 
 ## Do not run before approval
 
 This plan intentionally stops here. No command in this file has been
-executed. Running the real bake-off requires: the API keys above, a
-provisioned PaddleOCR-VL endpoint (or dropping it from round one), the
-small `--run` mode implemented, and the user's explicit go-ahead.
+executed. The execution framework is fully built and tested against mocked
+transports; running it for real requires: the API keys above and the
+user's explicit go-ahead via `--run --confirm-remote --max-cost-usd ...`.
