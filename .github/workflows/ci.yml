@@ -1,0 +1,41 @@
+name: CI
+
+# Deliberately installs only requirements.txt (the lightweight stack) --
+# never requirements-paddle.txt. A clean environment with no
+# paddlepaddle/paddleocr/paddlex installed is the first-class supported
+# case for Local Lens, not an edge case, so CI proves that on every push.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lightweight dependencies only
+        run: pip install -r requirements.txt
+
+      - name: Confirm Paddle is not installed
+        run: |
+          if pip show paddlepaddle paddleocr paddlex >/dev/null 2>&1; then
+            echo "Paddle packages must not be present in the default CI environment" >&2
+            exit 1
+          fi
+
+      - name: Compile check
+        run: python -m compileall local_lens app.py
+
+      - name: Unit tests
+        run: pytest tests/ -q
+
+      - name: CLI smoke test
+        run: |
+          python -m local_lens.cli --help
+          python -m local_lens.cli doctor

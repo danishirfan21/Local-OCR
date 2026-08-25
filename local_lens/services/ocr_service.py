@@ -13,13 +13,40 @@ from PIL import Image
 
 from local_lens.classification import classify
 from local_lens.engines.base import OCREngine
-from local_lens.models import DocumentResult
+from local_lens.models import DocumentResult, TableResult
 from local_lens.preprocessing.image import PRESET_NONE, apply_preset
 from local_lens.reconstruction import reconstruct_text
 from local_lens.scripts import SCRIPT_ARABIC, detect_scripts, infer_languages
 from local_lens.tables.base import TableExtractor
 from local_lens.text_normalization import normalize_urdu_text
 from local_lens.timing import Stopwatch
+
+
+def _clean_table(table: TableResult) -> TableResult:
+    """Trim cell whitespace and drop fully-empty rows, then record
+    deterministic quality indicators the backend didn't provide itself.
+
+    Never fabricates a confidence score -- `metadata` only ever holds
+    counts/ratios computed directly from the (cleaned) rows.
+    """
+    trimmed_rows = [[cell.strip() for cell in row] for row in table.rows]
+    kept_rows = [row for row in trimmed_rows if any(cell for cell in row)]
+    removed_empty_rows = len(trimmed_rows) - len(kept_rows)
+
+    total_cells = sum(len(row) for row in kept_rows)
+    empty_cells = sum(1 for row in kept_rows for cell in row if not cell)
+    empty_cell_ratio = round(empty_cells / total_cells, 3) if total_cells else 0.0
+
+    table.rows = kept_rows
+    table.metadata.update(
+        {
+            "row_count": len(kept_rows),
+            "column_count": len(kept_rows[0]) if kept_rows else 0,
+            "empty_cell_ratio": empty_cell_ratio,
+            "removed_empty_rows": removed_empty_rows,
+        }
+    )
+    return table
 
 
 class OCRService:
@@ -62,7 +89,7 @@ class OCRService:
         else:
             with sw.measure("table_extraction_ms"):
                 try:
-                    result.tables = self.table_extractor.extract(processed)
+                    result.tables = [_clean_table(t) for t in self.table_extractor.extract(processed)]
                     table_status = "ok" if result.tables else "no_tables_found"
                 except Exception as exc:
                     # Table extraction is an enrichment step -- its failure

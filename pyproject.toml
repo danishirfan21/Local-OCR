@@ -1,0 +1,33 @@
+[project]
+name = "local-lens"
+version = "0.4.0"
+description = "Private, local-first screenshot and document intelligence -- Fast local OCR with an optional, opt-in, bring-your-own-key remote Deep Analyze mode."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "easyocr>=1.7.2",
+    "numpy>=1.26.0",
+    "Pillow>=10.0.0",
+    "arabic-reshaper>=3.0.0",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.28.0", "streamlit-paste-button>=0.1.0"]
+dev = ["pytest>=7.4.0", "ruff>=0.6.0"]
+
+[project.scripts]
+local-lens = "local_lens.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["local_lens*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

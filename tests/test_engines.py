@@ -124,3 +124,32 @@ def test_table_extractor_success_populates_tables():
     result = service.process(_png_bytes(), ["en"], "none")
     assert len(result.tables) == 1
     assert result.metadata["table_extraction_status"] == "ok"
+
+
+class _MessyTableExtractor:
+    name = "messy"
+
+    def extract(self, image):
+        from local_lens.models import TableResult
+
+        return [
+            TableResult(
+                rows=[[" a ", " b "], ["", ""], ["c", ""]],
+                cells=[],
+                markdown=None,
+                confidence=None,
+                bbox=None,
+            )
+        ]
+
+
+def test_table_cleanup_trims_and_drops_empty_rows_and_records_metadata():
+    service = OCRService(FakeEngine(blocks=_table_like_blocks()), table_extractor=_MessyTableExtractor())
+    result = service.process(_png_bytes(), ["en"], "none")
+
+    table = result.tables[0]
+    assert table.rows == [["a", "b"], ["c", ""]]
+    assert table.metadata["row_count"] == 2
+    assert table.metadata["column_count"] == 2
+    assert table.metadata["removed_empty_rows"] == 1
+    assert table.metadata["empty_cell_ratio"] == 0.25
