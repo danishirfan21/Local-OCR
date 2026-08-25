@@ -14,15 +14,58 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QRect, QSettings  # noqa: E402
+from PySide6.QtCore import QObject, QRect, QSettings, Signal  # noqa: E402
 from PySide6.QtGui import QColor, QPixmap  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from desktop.app_controller import DesktopApplication  # noqa: E402
 from desktop.capture.geometry import PixelRect  # noqa: E402
 from desktop.hotkey.manager import GlobalHotkeyManager  # noqa: E402
 from desktop.settings import AppSettings  # noqa: E402
+from local_lens.models import DocumentResult  # noqa: E402
 from tests.test_hotkey_manager import FakeAdapter  # noqa: E402
+
+
+class _FakeRunningWorker:
+    def isRunning(self):
+        return True
+
+    def requestInterruption(self):
+        pass
+
+    def wait(self, _timeout_ms):
+        pass
+
+
+def _fake_document_result(text: str = "extracted text", content_type: str = "text") -> DocumentResult:
+    return DocumentResult(
+        text=text,
+        blocks=[],
+        language="en",
+        engine="easyocr",
+        metadata={"content_type": content_type, "total_ms": 250.0},
+        detected_scripts=["Latin"],
+    )
+
+
+class _FakeOCRWorker(QObject):
+    """Stands in for desktop.ocr_worker.OCRWorker -- emits synchronously
+    on start() so tests never run real EasyOCR (item 45)."""
+
+    succeeded = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, image_bytes, parent=None):
+        super().__init__(parent)
+        self._image_bytes = image_bytes
+
+    def isRunning(self):
+        return False
+
+    def start(self):
+        self.succeeded.emit(_fake_document_result())
+        self.finished.emit()
 
 
 class _FakeScreen:
@@ -72,7 +115,7 @@ def qapp():
 def _controller(qapp, tmp_path, adapter=None) -> DesktopApplication:
     settings = AppSettings(backing=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat))
     hotkey_manager = GlobalHotkeyManager(adapter=adapter if adapter is not None else FakeAdapter())
-    return DesktopApplication(qapp, settings=settings, hotkey_manager=hotkey_manager)
+    return DesktopApplication(qapp, settings=settings, hotkey_manager=hotkey_manager, enable_warmup=False)
 
 
 def test_controller_shows_main_window_and_registers_default_shortcut(qapp, tmp_path):
@@ -126,20 +169,19 @@ def test_tray_capture_action_also_starts_capture(qapp, tmp_path, monkeypatch):
     controller.quit()
 
 
-def test_completed_capture_shows_window_and_runs_ocr(qapp, tmp_path, monkeypatch):
+def test_completed_capture_shows_result_popup_and_runs_fast_ocr(qapp, tmp_path, monkeypatch):
     _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
     controller = _controller(qapp, tmp_path)
-
-    ocr_calls = []
-    monkeypatch.setattr(controller.main_window, "run_ocr", lambda image_bytes: ocr_calls.append(image_bytes))
 
     controller._start_capture()
     _pump_past_hide_settle(qapp)
     controller.capture._on_selection_made(PixelRect(left=10, top=10, width=50, height=50))
 
-    assert controller.main_window.isVisible()
-    assert len(ocr_calls) == 1
-    assert ocr_calls[0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert controller.result_window.isVisible()
+    assert not controller.main_window.isVisible()  # capture no longer routes through MainWindow (item 35)
+    assert controller.result_window.fast_pane.text_view.toPlainText() == "extracted text"
+    assert "Read locally" in controller.result_window.status_label.text()
     controller.quit()
 
 
@@ -147,22 +189,36 @@ def test_capture_ignored_while_ocr_already_running(qapp, tmp_path, monkeypatch):
     _patch_capture(monkeypatch)
     controller = _controller(qapp, tmp_path)
 
-    class _FakeRunningWorker:
-        def isRunning(self):
-            return True
-
-        def requestInterruption(self):
-            pass
-
-        def wait(self, _timeout_ms):
-            pass
-
     controller.main_window._worker = _FakeRunningWorker()
     controller._start_capture()
     qapp.processEvents()
 
     assert not controller.capture.is_active  # capture never actually started
-    assert "already in progress" in controller.main_window.status_label.text()
+    assert not controller.result_window.isVisible()
+    controller.quit()
+
+
+def test_capture_ignored_while_fast_ocr_popup_worker_running(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+    controller._fast_worker = _FakeRunningWorker()
+
+    controller._start_capture()
+    qapp.processEvents()
+
+    assert not controller.capture.is_active
+    controller.quit()
+
+
+def test_capture_ignored_while_deep_worker_running(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+    controller._deep_worker = _FakeRunningWorker()
+
+    controller._start_capture()
+    qapp.processEvents()
+
+    assert not controller.capture.is_active
     controller.quit()
 
 
@@ -203,4 +259,117 @@ def test_settings_dialog_rejecting_new_shortcut_restores_previous_registration(q
     adapter.should_succeed = True
     restored = controller._register_hotkey(controller.settings.shortcut)
     assert restored is True
+    controller.quit()
+
+
+class _FakeDeepWorker(QObject):
+    succeeded = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, image_bytes, parent=None):
+        super().__init__(parent)
+        self._image_bytes = image_bytes
+
+    def isRunning(self):
+        return False
+
+    def start(self):
+        self.succeeded.emit(_fake_document_result(text="deep text"))
+        self.finished.emit()
+
+
+class _FakeAcceptingPrivacyDialog:
+    def __init__(self, parent=None):
+        pass
+
+    def exec(self):
+        return QDialog.DialogCode.Accepted
+
+
+class _FakeRejectingPrivacyDialog:
+    def __init__(self, parent=None):
+        pass
+
+    def exec(self):
+        return QDialog.DialogCode.Rejected
+
+
+def _capture_one_result(controller, qapp):
+    controller._start_capture()
+    _pump_past_hide_settle(qapp)
+    controller.capture._on_selection_made(PixelRect(left=10, top=10, width=50, height=50))
+
+
+def test_deep_requested_shows_privacy_dialog_then_runs_deep(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+    monkeypatch.setattr("desktop.app_controller.DeepWorker", _FakeDeepWorker)
+    monkeypatch.setattr("desktop.app_controller.DeepPrivacyDialog", _FakeAcceptingPrivacyDialog)
+    monkeypatch.setattr("desktop.app_controller.production_gemini_configured", lambda env: True)
+
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+
+    assert controller._deep_privacy_acknowledged is False
+    controller.result_window.deep_requested.emit()
+
+    assert controller._deep_privacy_acknowledged is True
+    assert controller.result_window.deep_pane.text_view.toPlainText() == "deep text"
+    controller.quit()
+
+
+def test_declining_privacy_dialog_sends_no_deep_request(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+    monkeypatch.setattr("desktop.app_controller.DeepWorker", _FakeDeepWorker)
+    monkeypatch.setattr("desktop.app_controller.DeepPrivacyDialog", _FakeRejectingPrivacyDialog)
+    monkeypatch.setattr("desktop.app_controller.production_gemini_configured", lambda env: True)
+
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+    controller.result_window.deep_requested.emit()
+
+    assert controller._deep_privacy_acknowledged is False
+    assert controller.result_window.deep_pane is None
+    controller.quit()
+
+
+def test_privacy_dialog_only_shown_once_per_session(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+    monkeypatch.setattr("desktop.app_controller.DeepWorker", _FakeDeepWorker)
+    monkeypatch.setattr("desktop.app_controller.production_gemini_configured", lambda env: True)
+
+    construct_count = []
+
+    class _CountingAcceptDialog(_FakeAcceptingPrivacyDialog):
+        def __init__(self, parent=None):
+            construct_count.append(1)
+
+    monkeypatch.setattr("desktop.app_controller.DeepPrivacyDialog", _CountingAcceptDialog)
+
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+    controller.result_window.deep_requested.emit()
+    controller.result_window.deep_requested.emit()  # second Deep click, same session
+
+    assert len(construct_count) == 1
+    controller.quit()
+
+
+def test_capture_and_fast_ocr_make_zero_network_calls_until_deep_clicked(qapp, tmp_path, monkeypatch):
+    import urllib.request
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("Fast-mode capture path must not open a network connection")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+
+    assert controller.result_window.isVisible()  # reached here without raising -> no network call happened
     controller.quit()

@@ -221,8 +221,9 @@ prototype (which stays the primary dev/test UI until the desktop client's
 own workflow is fully proven). Stack: PySide6 (Qt 6), single Python
 process, importing `local_lens/` directly -- no Rust/Tauri, no IPC
 boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
-`docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design, and
-`docs/V6_3_CAPTURE.md` for the capture workflow.
+`docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design,
+`docs/V6_3_CAPTURE.md` for the capture workflow, and
+`docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze.
 
 - **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
   `python -m desktop.main`): open an existing image, run Fast OCR on a
@@ -238,8 +239,15 @@ boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
   screenshot ever written to disk). DPI-aware (verified live at 125%
   scaling); multi-monitor is structurally supported but not live-verified
   on this single-monitor machine.
-- **V6.4** — planned next: compact result popup + smarter content
-  presentation (Deep Analyze entry point, better result positioning).
+- **V6.4 — Result popup + Deep Analyze** ✓: capture now shows a compact,
+  reusable popup (not the main window) with a "Reading selection…" state,
+  content-aware Fast result (text/code/table, no fabricated table
+  structure), and an optional Deep Analyze button that runs the production
+  Gemini path on a background thread behind a one-per-session privacy
+  prompt -- Fast and Deep results sit in separate tabs, and a Deep failure
+  never touches the Fast result. EasyOCR is warmed up in the background at
+  startup (~10s cold vs. ~0.3-0.6s warm, measured on this machine).
+- **V6.5** — planned next: Settings/packaging polish (exact scope pending).
 
 ## Roadmap (not built)
 

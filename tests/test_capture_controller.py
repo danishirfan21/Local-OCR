@@ -101,7 +101,9 @@ def test_selection_emits_captured_png_bytes(qapp, monkeypatch):
     controller._on_selection_made(PixelRect(left=10, top=10, width=50, height=50))
 
     assert len(captured) == 1
-    assert captured[0][:8] == b"\x89PNG\r\n\x1a\n"
+    assert captured[0].png_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+    assert captured[0].selection_global == PixelRect(left=10, top=10, width=50, height=50)
+    assert captured[0].monitor_global == PixelRect(left=0, top=0, width=400, height=300)
     assert not controller.is_active  # overlay torn down after a successful selection
 
 
