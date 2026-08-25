@@ -11,6 +11,7 @@ from __future__ import annotations
 from local_lens.deep_analysis.production import production_gemini_configured
 from local_lens.env_file import load_env
 
+from desktop.capture.controller import CaptureController
 from desktop.hotkey.manager import GlobalHotkeyManager
 from desktop.hotkey.shortcut import is_supported
 from desktop.icon import default_icon
@@ -44,12 +45,17 @@ class DesktopApplication:
         self.main_window = MainWindow()
         self.main_window.hide_to_tray_enabled = True
 
+        self._window_was_visible_before_capture = False
+        self.capture = CaptureController(hide_windows=self.main_window.hide)
+        self.capture.captured.connect(self._on_capture_finished)
+        self.capture.cancelled.connect(self._on_capture_cancelled)
+
         self.hotkey_manager = hotkey_manager if hotkey_manager is not None else GlobalHotkeyManager(app=self.app)
-        self.hotkey_manager.triggered.connect(self._on_hotkey_triggered)
+        self.hotkey_manager.triggered.connect(self._start_capture)
         self.hotkey_manager.registration_failed.connect(self._on_hotkey_registration_failed)
 
         self.tray = TrayController(default_icon())
-        self.tray.capture_requested.connect(self._on_capture_requested)
+        self.tray.capture_requested.connect(self._start_capture)
         self.tray.open_requested.connect(self._on_open_requested)
         self.tray.settings_requested.connect(self._on_settings_requested)
         self.tray.quit_requested.connect(self.quit)
@@ -73,15 +79,29 @@ class DesktopApplication:
     def _on_hotkey_registration_failed(self, message: str) -> None:
         self.main_window.show_shortcut_warning(message)
 
-    def _on_hotkey_triggered(self) -> None:
-        logger.info("hotkey triggered -- capture requested")
-        self._show_main_window()
+    def _start_capture(self) -> None:
+        """Shared by the global hotkey and the tray's Capture action --
+        both trigger the exact same region-selection workflow."""
+        worker = self.main_window._worker
+        if worker is not None and worker.isRunning():
+            # OCR reentrancy: prefer letting the current job finish rather
+            # than starting a second EasyOCR run concurrently (item 25).
+            logger.info("capture requested while OCR in progress -- ignored")
+            self.main_window.bring_to_front()
+            self.main_window.status_label.setText("OCR already in progress -- please wait.")
+            return
 
-    def _on_capture_requested(self) -> None:
-        # Region capture is V6.3 (item 31). For now, "Capture" proves the
-        # tray-action plumbing by just bringing Local Lens to the front.
-        logger.info("capture requested (tray) -- region capture not implemented until V6.3")
-        self._show_main_window()
+        self._window_was_visible_before_capture = self.main_window.isVisible()
+        self.capture.start()
+
+    def _on_capture_finished(self, png_bytes: bytes) -> None:
+        logger.info("capture complete -- starting Fast OCR")
+        self.main_window.bring_to_front()
+        self.main_window.run_ocr(png_bytes)
+
+    def _on_capture_cancelled(self) -> None:
+        if self._window_was_visible_before_capture:
+            self.main_window.bring_to_front()
 
     def _on_open_requested(self) -> None:
         self._show_main_window()
