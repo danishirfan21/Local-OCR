@@ -155,13 +155,15 @@ pip's extraction scratch space off `C:` as well.
 
 ## Revised V6 milestone plan
 
-- **V6.1** (this task): desktop shell — launch, open an existing image
+- **V6.1** (done): desktop shell — launch, open an existing image
   file, run Fast OCR via a `QThread` worker, display the result, Copy.
   No hotkey, no capture, no tray yet — proves the shell + worker-thread +
   `OCRService` integration in isolation, same "validate one thing at a
   time" discipline the original Tauri plan specified.
-- V6.2: system tray + global hotkey (`RegisterHotKey` + native event filter).
-- V6.3: screenshot capture + region-selection overlay.
+- **V6.2** (done): system tray + global hotkey (`RegisterHotKey` + native
+  event filter) + close-to-tray + a minimal Settings dialog. See
+  `docs/V6_2_TRAY_HOTKEY.md`.
+- V6.3 (next): screenshot capture + region-selection overlay.
 - V6.4: compact result popup near cursor/hotkey location.
 - V6.5: Gemini Deep Analyze wired into the desktop shell (reusing
   `build_production_gemini_provider` and the same explicit-consent flow

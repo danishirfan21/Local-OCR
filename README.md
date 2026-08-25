@@ -214,6 +214,27 @@ README for setup and results, and the "PaddleOCR-VL findings" section of
 the V3 implementation report for measured numbers and their status
 (measured-locally vs. upstream-claim vs. not-tested).
 
+## Desktop (in progress, Windows-first)
+
+A native Windows desktop client is being built alongside the Streamlit
+prototype (which stays the primary dev/test UI until the desktop client's
+own workflow is fully proven). Stack: PySide6 (Qt 6), single Python
+process, importing `local_lens/` directly -- no Rust/Tauri, no IPC
+boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why, and
+`docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design.
+
+- **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
+  `python -m desktop.main`): open an existing image, run Fast OCR on a
+  background thread, view/copy the result.
+- **V6.2 — Background utility (tray + global shortcut)** ✓: system tray
+  icon (Capture / Open Local Lens / Settings / Quit), a configurable
+  global hotkey (default `Ctrl+Shift+Space`, native `RegisterHotKey`, no
+  extra dependency), close-to-tray window behavior, and a minimal Settings
+  dialog (shortcut editor + Gemini configured/not-configured status).
+- **V6.3 — Region capture** — planned next: screenshot capture + a
+  translucent selection overlay, replacing V6.2's placeholder "Capture"
+  action (which currently just brings the window to the front).
+
 ## Roadmap (not built)
 
 - A live remote Deep Analyze provider actually provisioned and verified
@@ -227,7 +248,7 @@ the V3 implementation report for measured numbers and their status
 - REST API and MCP server interfaces on top of the existing `local_lens/`
   core (the CLI is now built; the architecture is already
   Streamlit-independent for this reason)
-- Native desktop capture workflow
+- Screenshot region-selection capture in the desktop client (V6.3)
 - Semantic screenshot history / search
 - Stronger code-block extraction (syntax-aware, not just heuristic)
 - Local translation
