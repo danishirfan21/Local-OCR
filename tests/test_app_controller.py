@@ -14,13 +14,51 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QSettings  # noqa: E402
+from PySide6.QtCore import QRect, QSettings  # noqa: E402
+from PySide6.QtGui import QColor, QPixmap  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from desktop.app_controller import DesktopApplication  # noqa: E402
+from desktop.capture.geometry import PixelRect  # noqa: E402
 from desktop.hotkey.manager import GlobalHotkeyManager  # noqa: E402
 from desktop.settings import AppSettings  # noqa: E402
 from tests.test_hotkey_manager import FakeAdapter  # noqa: E402
+
+
+class _FakeScreen:
+    def geometry(self):
+        return QRect(0, 0, 400, 300)
+
+    def devicePixelRatio(self):
+        return 1.0
+
+    def name(self):
+        return "FAKE-1"
+
+
+def _fake_pixmap():
+    pixmap = QPixmap(400, 300)
+    pixmap.fill(QColor(20, 20, 20))
+    return pixmap
+
+
+def _patch_capture(monkeypatch):
+    monkeypatch.setattr("desktop.capture.controller.screen_under_cursor", lambda: _FakeScreen())
+    monkeypatch.setattr("desktop.capture.controller.grab_screen", lambda screen: _fake_pixmap())
+
+
+def _pump_past_hide_settle(qapp):
+    # CaptureController.start() defers _begin_overlay by a short real
+    # settle delay (_HIDE_SETTLE_MS) -- processEvents() alone won't fire a
+    # not-yet-due QTimer, so this actually waits past it.
+    import time
+
+    from desktop.capture.controller import _HIDE_SETTLE_MS
+
+    deadline = time.time() + (_HIDE_SETTLE_MS / 1000) + 0.2
+    while time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
 
 
 @pytest.fixture(scope="module")
@@ -63,13 +101,81 @@ def test_quit_unregisters_hotkey_and_hides_window(qapp, tmp_path):
     assert controller.main_window.hide_to_tray_enabled is False
 
 
-def test_hotkey_triggered_brings_window_to_front(qapp, tmp_path):
+def test_hotkey_triggered_starts_capture_and_hides_window(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
     controller = _controller(qapp, tmp_path)
-    controller.main_window.hide()
-    assert not controller.main_window.isVisible()
 
     controller.hotkey_manager.triggered.emit()
+    _pump_past_hide_settle(qapp)
+
+    assert controller.capture.is_active
+    assert not controller.main_window.isVisible()
+    controller.capture._teardown_overlay()
+    controller.quit()
+
+
+def test_tray_capture_action_also_starts_capture(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+
+    controller.tray.capture_requested.emit()
+    _pump_past_hide_settle(qapp)
+
+    assert controller.capture.is_active
+    controller.capture._teardown_overlay()
+    controller.quit()
+
+
+def test_completed_capture_shows_window_and_runs_ocr(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+
+    ocr_calls = []
+    monkeypatch.setattr(controller.main_window, "run_ocr", lambda image_bytes: ocr_calls.append(image_bytes))
+
+    controller._start_capture()
+    _pump_past_hide_settle(qapp)
+    controller.capture._on_selection_made(PixelRect(left=10, top=10, width=50, height=50))
+
     assert controller.main_window.isVisible()
+    assert len(ocr_calls) == 1
+    assert ocr_calls[0][:8] == b"\x89PNG\r\n\x1a\n"
+    controller.quit()
+
+
+def test_capture_ignored_while_ocr_already_running(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+
+    class _FakeRunningWorker:
+        def isRunning(self):
+            return True
+
+        def requestInterruption(self):
+            pass
+
+        def wait(self, _timeout_ms):
+            pass
+
+    controller.main_window._worker = _FakeRunningWorker()
+    controller._start_capture()
+    qapp.processEvents()
+
+    assert not controller.capture.is_active  # capture never actually started
+    assert "already in progress" in controller.main_window.status_label.text()
+    controller.quit()
+
+
+def test_cancelled_capture_restores_window_only_if_it_was_visible(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+    assert controller.main_window.isVisible()
+
+    controller._start_capture()
+    _pump_past_hide_settle(qapp)
+    controller.capture._on_cancelled()
+
+    assert controller.main_window.isVisible()  # was visible before capture -- restored
     controller.quit()
 
 

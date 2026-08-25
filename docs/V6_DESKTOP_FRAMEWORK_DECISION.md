@@ -163,7 +163,9 @@ pip's extraction scratch space off `C:` as well.
 - **V6.2** (done): system tray + global hotkey (`RegisterHotKey` + native
   event filter) + close-to-tray + a minimal Settings dialog. See
   `docs/V6_2_TRAY_HOTKEY.md`.
-- V6.3 (next): screenshot capture + region-selection overlay.
+- **V6.3** (done): screenshot capture + region-selection overlay. See
+  `docs/V6_3_CAPTURE.md`.
+- V6.4 (next): compact result popup + smarter content presentation.
 - V6.4: compact result popup near cursor/hotkey location.
 - V6.5: Gemini Deep Analyze wired into the desktop shell (reusing
   `build_production_gemini_provider` and the same explicit-consent flow

@@ -220,8 +220,9 @@ A native Windows desktop client is being built alongside the Streamlit
 prototype (which stays the primary dev/test UI until the desktop client's
 own workflow is fully proven). Stack: PySide6 (Qt 6), single Python
 process, importing `local_lens/` directly -- no Rust/Tauri, no IPC
-boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why, and
-`docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design.
+boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
+`docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design, and
+`docs/V6_3_CAPTURE.md` for the capture workflow.
 
 - **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
   `python -m desktop.main`): open an existing image, run Fast OCR on a
@@ -231,9 +232,14 @@ boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why, and
   global hotkey (default `Ctrl+Shift+Space`, native `RegisterHotKey`, no
   extra dependency), close-to-tray window behavior, and a minimal Settings
   dialog (shortcut editor + Gemini configured/not-configured status).
-- **V6.3 — Region capture** — planned next: screenshot capture + a
-  translucent selection overlay, replacing V6.2's placeholder "Capture"
-  action (which currently just brings the window to the front).
+- **V6.3 — Region capture** ✓: `Ctrl+Shift+Space` (or tray Capture) dims
+  the screen, drag a rectangle, and Fast OCR runs automatically on the
+  selection (`QScreen.grabWindow` only, no extra dependency, no
+  screenshot ever written to disk). DPI-aware (verified live at 125%
+  scaling); multi-monitor is structurally supported but not live-verified
+  on this single-monitor machine.
+- **V6.4** — planned next: compact result popup + smarter content
+  presentation (Deep Analyze entry point, better result positioning).
 
 ## Roadmap (not built)
 
@@ -248,7 +254,6 @@ boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why, and
 - REST API and MCP server interfaces on top of the existing `local_lens/`
   core (the CLI is now built; the architecture is already
   Streamlit-independent for this reason)
-- Screenshot region-selection capture in the desktop client (V6.3)
 - Semantic screenshot history / search
 - Stronger code-block extraction (syntax-aware, not just heuristic)
 - Local translation
