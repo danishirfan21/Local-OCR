@@ -12,6 +12,66 @@ are marked **confirmed** (found explicitly in current official docs),
 **likely** (reasonable inference, not explicitly stated), or **unknown**
 (not found, not guessed). Source URLs are inline.
 
+## 0. Free-first strategy
+
+Before spending any of the approved $0.25 paid budget, prioritize
+providers whose free tier is verified to require no payment method and
+have no documented auto-billing mechanism. This changes the product
+question from "which paid API should Local Lens use" to first asking:
+**could Local Lens Deep Analyze reasonably ship against a free hosted
+vision API at all?** If a free tier performs well enough, that materially
+changes the product's economics -- no billing relationship needed for a
+default Deep backend.
+
+**Round 1 (free) finalists**, both re-verified against current official
+docs this pass:
+
+| Finalist | Model | Payment method required? | Billing spillover possible? | Free-tier limits (documented) |
+|---|---|---|---|---|
+| **Groq** | `qwen/qwen3.6-27b` | **No** (confirmed: upgrading to a billed tier is a separate, explicit action) | No auto-upgrade mechanism found; exceeding the free tier returns HTTP 429, not a charge (see caveat below) | RPM 30, RPD 1,000, TPM 8,000, TPD 200,000 -- console.groq.com/docs/rate-limits |
+| **Gemini** | `gemini-3.1-flash-lite` | **No** (confirmed: "The Free Tier does not require a billing account" -- ai.google.dev/gemini-api/docs/billing) | **No** -- billing requires manually linking a billing account and prepaying a $10 minimum; cannot happen silently | ~15 RPM / ~1,000 RPD / ~250,000 TPM (third-party-reported; Google's own rate-limit page no longer publishes static numbers, see caveat below) |
+
+**Caveats, stated plainly rather than smoothed over**:
+- Groq's docs don't contain a verbatim sentence guaranteeing "exceeding
+  the free tier never charges you" -- this is inferred from (a) no payment
+  method being required for the free tier and (b) no auto-upgrade language
+  anywhere in Groq's billing docs, not from an explicit guarantee.
+- Gemini's free-tier rate limits are no longer published as static numbers
+  on Google's own rate-limits page (it now points to a live per-account
+  dashboard); the figures above are third-party-reported and should be
+  confirmed at `aistudio.google.com/rate-limit` before relying on them for
+  a larger run. For this benchmark's 12 serial requests, even the lower
+  reported bound is not a close call.
+
+**Hugging Face Inference Providers was researched and excluded from Round
+1**: free-tier credit is only **$0.10/month** (huggingface.co/docs/
+inference-providers/pricing), and exact per-token pricing for a
+genuinely-distinct vision model (`Qwen/Qwen3-VL-8B-Instruct`, routed via
+Featherless AI, confirmed routable and architecturally different from
+whatever Groq serves) could not be confirmed from static documentation
+(HF renders provider pricing via JS). Twelve image+prompt requests could
+plausibly exhaust $0.10 partway through the corpus, and further usage
+requires an explicit credit purchase -- not silent billing, but also not a
+budget this benchmark can respect for a full 12-fixture run. Once static
+pricing is confirmed (e.g. by checking the live account dashboard), HF
+could be reconsidered for a future round with a much smaller, capped
+request count.
+
+**Groq evaluation hypothesis** (stated before any test, per the task's own
+instruction not to declare a winner before benchmark data exists): Groq-
+hosted Qwen vision may be particularly attractive for Local Lens because
+it combines vision/OCR, JSON mode, multilingual support, and very high
+hosted inference speed with a developer-friendly free tier and an
+exact-match OpenAI-compatible API. This is a hypothesis to be tested, not
+a conclusion.
+
+**Round 2 (paid) finalists** are unchanged from the original plan: OpenAI
+GPT-5, Claude Sonnet 5, Fireworks Qwen2.5-VL-72B, with PaddleOCR-VL kept
+in the registry but excluded from execution entirely (no GPU endpoint
+provisioned). Round 2 remains gated behind the $0.25 hard ceiling and is
+only worth running if Round 1's results don't already answer the product
+question well enough.
+
 ## 1. Candidate landscape
 
 ### OpenAI
@@ -200,9 +260,10 @@ OCR); it is not a measurement.
 | OpenAI GPT-5-nano | likely good | likely fair | likely good | unknown | confirmed | yes | yes | ~$0.25 | none |
 | Anthropic Claude Sonnet 5 | likely strong, explicit low-confidence guidance | likely strong | likely strong | unknown | confirmed (tool_use) | yes | yes | ~$10.50 | dedicated adapter (built) |
 | Anthropic Claude Haiku 4.5 | likely good | likely good | likely good | unknown | confirmed | yes | yes | ~$3.50 | dedicated adapter (shared) |
-| Gemini 2.5/3.5 Flash-Lite | likely good | likely fair | likely good | unknown | confirmed (native); beta (OpenAI-compat) | yes | yes | ~$0.30 | none via OpenAI-compat beta |
+| Gemini 3.1 Flash-Lite (**free-tier finalist**) | likely good | likely fair | likely good | unknown | confirmed (native `response_json_schema`) | yes | yes | $0.00 expected (free tier, no payment method required) | none (native adapter already built) |
 | Gemini 3.1 Pro | likely strong, native PDF | likely strong | likely strong | unknown | confirmed | yes | yes | pricing not confirmed | none via OpenAI-compat beta |
 | Qwen2.5-VL-72B (Fireworks) | likely strong (open OCR-focused lineage) | likely good | likely good | unknown | best-effort via prompt | yes | yes | ~$1.35 | none (generic adapter) |
+| Groq Qwen3.6-27B (**free-tier finalist**) | confirmed by Groq's own docs: OCR, doc/chart understanding | unverified | likely good (JSON mode confirmed) | unknown | confirmed (JSON Object Mode) | yes | yes | $0.00 expected (free tier, no payment method required) | none (generic adapter, exact-match OpenAI shape) |
 | PaddleOCR-VL-1.6 (self-hosted vLLM) | **measured locally in V3** (see docs/V4_DIRECTION.md) -- 8-132s CPU latency, real extreme-aspect-ratio bug found and mitigated | measured (real table pipeline) | not benchmarked | unverified in docs, Arabic script confirmed | best-effort via prompt | no -- self-managed | yes (self-hosted) | GPU-time billed, not per-token | provider built (PaddleVLLMProvider); server not deployed |
 | Mistral OCR | likely strong (OCR-specialist) | confirmed (markdown table output) | unknown | unknown | markdown, not the shared JSON schema | yes | yes | ~$4.00 (per-page, not per-token) | new bespoke adapter (not built) |
 
@@ -245,7 +306,9 @@ identity distinct from what it is today.
 | Anthropic | No | Images "ephemeral," deleted after request processing | [Vision docs](https://platform.claude.com/docs/en/build-with-claude/vision) |
 | Google Gemini (free/AI Studio tier) | **Yes** -- content may be used to improve products; human review possible | Not itemized in pages fetched | Explicitly told not to submit sensitive data on this tier |
 | Google Gemini (paid tier) | No | Brief retention for abuse/legal only | EEA/UK/Switzerland users required onto paid tier |
-| Fireworks/Together/DeepInfra/HF-routed | Not researched this pass | Not researched this pass | Flag for the finalist round if any of these gets picked |
+| Groq | No -- Services Agreement prohibits training on inputs/outputs without explicit permission | Not retained by default for inference requests; 30-day retention only for batch/fine-tuning or abuse investigation, with an optional Zero Data Retention tier | [Your Data](https://console.groq.com/docs/your-data) |
+| Hugging Face Inference Providers (routed) | HF itself: does not store request/response bodies (30-day debug logs only, no payload) | HF is a proxy, not a data controller for the routed call's payload | The **underlying provider** (e.g. Featherless AI) ultimately receives and processes the actual image -- HF's own docs explicitly defer to "the Data Security Policies of each provider" rather than summarizing them. Excluded from Round 1 for budget reasons (see section 0), but this distinction matters if HF is reconsidered later: "uses an HF token" is not the same claim as "private," since a third party beyond HF still sees the data. |
+| Fireworks/Together/DeepInfra | Not researched this pass | Not researched this pass | Flag for a future finalist round if any of these gets picked |
 | PaddleOCR-VL self-hosted | N/A -- no third party at all | You control it entirely | Only option where "your data doesn't leave infrastructure you control" is literally true |
 | Mistral OCR | Not researched this pass | Not researched this pass | — |
 
@@ -253,7 +316,10 @@ identity distinct from what it is today.
 Analyze privacy notice (`app.py`'s sidebar caption) must distinguish free
 vs. paid Gemini tier explicitly -- "sent to your configured provider" is
 not honest enough for Gemini's free tier specifically, where the provider
-itself says it may use the content for training and human review.
+itself says it may use the content for training and human review. The
+same discipline applies to any future HF-routed candidate: "configured via
+an HF token" must not be described as "private" when a third party beyond
+Hugging Face is the one actually processing the image.
 
 ## 5. Evaluation metrics (defined before any request is made)
 

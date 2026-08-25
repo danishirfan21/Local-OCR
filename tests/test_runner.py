@@ -83,7 +83,8 @@ def test_preflight_reports_executable_when_configured():
     assert openai.configured is True
     assert openai.executable is True
     assert openai.requests == 12
-    assert openai.estimated_max_cost_usd > 0
+    assert openai.nominal_cost_usd > 0
+    assert openai.expected_actual_charge_usd == openai.nominal_cost_usd  # OpenAI is a paid-classification finalist
 
 
 def test_preflight_treats_placeholder_as_unconfigured():

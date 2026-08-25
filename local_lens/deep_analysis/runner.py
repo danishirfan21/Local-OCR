@@ -30,6 +30,7 @@ from local_lens.deep_analysis.finalists import (
     FINALISTS,
     build_provider_for_finalist,
     credential_configured,
+    finalists_for_round,
 )
 from local_lens.deep_analysis.manifest import write_manifest
 from local_lens.deep_analysis.sanitize import sanitize_error_message, sanitize_result_record
@@ -58,16 +59,21 @@ class PreflightFinalist:
     label: str
     provider_kind: str
     model: str
+    round: str
+    cost_classification: str
     configured: bool
     executable: bool
     unavailable_reason: str | None
     requests: int
-    estimated_max_cost_usd: float | None
+    nominal_cost_usd: float | None
+    expected_actual_charge_usd: float | None
+    within_free_tier_request_limit: bool | None = None
 
 
 @dataclass
 class PreflightReport:
     benchmark_version: str
+    round: str
     fixture_count: int
     finalists: list[PreflightFinalist]
     total_executable_requests: int
@@ -75,10 +81,11 @@ class PreflightReport:
     warnings: list[str] = field(default_factory=list)
 
 
-def run_preflight(env: dict | None = None) -> PreflightReport:
+def run_preflight(env: dict | None = None, round_name: str | None = None) -> PreflightReport:
     """Zero network calls: only local config inspection + fixture
     materialization (the same lightweight PIL rendering `--dry-run` already
-    does)."""
+    does). `round_name`: "free", "paid", or None for all finalists
+    regardless of round."""
     from local_lens.deep_analysis.manifest import BENCHMARK_VERSION
 
     cases = build_deep_benchmark_cases()
@@ -87,7 +94,9 @@ def run_preflight(env: dict | None = None) -> PreflightReport:
     total_requests = 0
     total_cost = 0.0
 
-    for fc in FINALISTS:
+    candidates = FINALISTS if round_name is None else finalists_for_round(round_name)
+
+    for fc in candidates:
         configured = credential_configured(fc, env) if fc.credential_env_var else False
         executable = fc.executable_in_first_run and configured
 
@@ -98,14 +107,28 @@ def run_preflight(env: dict | None = None) -> PreflightReport:
             reason = f"not configured -- set {fc.credential_env_var}"
 
         requests = len(cases) if executable else 0
-        cost = None
+        nominal_cost = None
+        expected_charge = None
+        within_limit = None
+
         if executable:
             per_request = estimate_request_cost(
                 fc.pricing, ESTIMATED_INPUT_TOKENS_PER_REQUEST, ESTIMATED_OUTPUT_TOKENS_PER_REQUEST
             )
-            cost = round(per_request * requests, 4)
+            nominal_cost = round(per_request * requests, 4)
             total_requests += requests
-            total_cost += cost
+
+            if fc.cost_classification in ("zero_cost_eligible", "likely_free"):
+                # Nominal (this finalist's real published per-token rate,
+                # recorded for transparency) is NOT the same as what this
+                # account will actually be charged -- see finalists.py's
+                # module docstring for why these are tracked separately.
+                expected_charge = 0.0
+                if fc.free_tier_limits is not None and fc.free_tier_limits.rpd is not None:
+                    within_limit = requests <= fc.free_tier_limits.rpd
+            else:
+                expected_charge = nominal_cost
+                total_cost += nominal_cost
 
         if executable and fc.provider_kind == "gemini":
             warnings.append(
@@ -117,22 +140,33 @@ def run_preflight(env: dict | None = None) -> PreflightReport:
                 "behavior to real user screenshots in the app without an explicit, tier-aware privacy "
                 "disclosure in the UI first."
             )
+        if executable and fc.provider_kind == "openai-compatible" and "groq" in (fc.base_url or "").lower():
+            warnings.append(
+                "Groq: free-tier data is not retained for inference requests by default and Groq's Services "
+                "Agreement prohibits training on inputs/outputs without explicit permission -- see "
+                "docs/DEEP_PROVIDER_EVALUATION.md. No payment method is required for the free tier."
+            )
 
         finalists.append(
             PreflightFinalist(
                 label=fc.label,
                 provider_kind=fc.provider_kind,
                 model=fc.model,
+                round=fc.round,
+                cost_classification=fc.cost_classification,
                 configured=configured,
                 executable=executable,
                 unavailable_reason=reason,
                 requests=requests,
-                estimated_max_cost_usd=cost,
+                nominal_cost_usd=nominal_cost,
+                expected_actual_charge_usd=expected_charge,
+                within_free_tier_request_limit=within_limit,
             )
         )
 
     return PreflightReport(
         benchmark_version=BENCHMARK_VERSION,
+        round=round_name or "all",
         fixture_count=len(cases),
         finalists=finalists,
         total_executable_requests=total_requests,
@@ -154,6 +188,7 @@ class RequestResult:
     http_status: int | None = None
     input_usage: int | None = None
     output_usage: int | None = None
+    nominal_cost_usd: float | None = None
     estimated_cost_usd: float | None = None
     metrics: dict | None = None
     error: str | None = None
@@ -186,6 +221,8 @@ def execute_benchmark(
     output_dir: Path,
     env: dict | None = None,
     confirm_remote: bool = False,
+    round_name: str | None = None,
+    free_tier_only: bool = False,
     provider_overrides: dict[str, object] | None = None,
 ) -> RunSummary:
     """Runs the real bake-off. `confirm_remote` is a belt-and-suspenders
@@ -193,14 +230,31 @@ def execute_benchmark(
     `--confirm-remote`, but this function refuses too, so nothing else in
     the codebase can trigger a real run by calling it directly.
 
+    `round_name`: "free", "paid", or None for every configured finalist
+    regardless of round. `free_tier_only=True` is REQUIRED when
+    `round_name == "free"` -- a second explicit acknowledgment (on top of
+    `confirm_remote`) that this still sends images to a third party even
+    though it's expected to cost nothing; it also changes cost accounting:
+    zero_cost_eligible/likely_free finalists' nominal per-token cost is
+    recorded for transparency but does NOT count against `max_cost_usd`
+    (their real published pricing would otherwise make a strict $0.00
+    ceiling impossible to satisfy even though the account will not
+    actually be charged -- see finalists.py's module docstring). Paid
+    finalists are never exempted from the ceiling, in any round.
+
     `provider_overrides`: {finalist_label: DeepAnalysisProvider} -- used
     exclusively by tests to inject a fake-transport provider instead of a
     real one. Never used by the CLI path.
     """
     if not confirm_remote:
         raise PermissionError("execute_benchmark called without confirm_remote=True -- refusing to proceed.")
+    if round_name == "free" and not free_tier_only:
+        raise PermissionError(
+            "round_name='free' requires free_tier_only=True -- a free benchmark still sends images to a "
+            "third party and must be explicitly acknowledged, even though it's expected to cost nothing."
+        )
 
-    preflight = run_preflight(env)
+    preflight = run_preflight(env, round_name=round_name)
     if preflight.estimated_max_cost_usd > max_cost_usd:
         raise BudgetExceeded(
             f"Estimated maximum ${preflight.estimated_max_cost_usd:.4f} exceeds ceiling ${max_cost_usd:.4f}."
@@ -292,12 +346,21 @@ def execute_benchmark(
             input_tokens = usage.get("input_tokens")
             output_tokens = usage.get("output_tokens")
             if input_tokens is not None and output_tokens is not None:
-                cost = estimate_request_cost(fc.pricing, input_tokens, output_tokens)
+                nominal_request_cost = estimate_request_cost(fc.pricing, input_tokens, output_tokens)
             else:
-                cost = estimate_request_cost(
+                nominal_request_cost = estimate_request_cost(
                     fc.pricing, ESTIMATED_INPUT_TOKENS_PER_REQUEST, ESTIMATED_OUTPUT_TOKENS_PER_REQUEST
                 )
-            accumulated_cost += cost
+
+            if fc.cost_classification in ("zero_cost_eligible", "likely_free"):
+                # Recorded for transparency (see RequestResult.metrics'
+                # "nominal_cost_usd" below) but never counted toward the
+                # ceiling -- this finalist's real billing is governed by
+                # its free-tier request limits, not token pricing.
+                cost = 0.0
+            else:
+                cost = nominal_request_cost
+                accumulated_cost += cost
 
             metrics = _score_case(case, doc_result)
 
@@ -310,6 +373,7 @@ def execute_benchmark(
                 http_status=doc_result.metadata.get("http_status"),
                 input_usage=input_tokens,
                 output_usage=output_tokens,
+                nominal_cost_usd=round(nominal_request_cost, 6),
                 estimated_cost_usd=cost,
                 metrics=metrics,
             )

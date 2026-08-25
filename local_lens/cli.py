@@ -172,11 +172,12 @@ def _cmd_benchmark_deep_dry_run() -> int:
     return 0
 
 
-def _cmd_benchmark_deep_preflight() -> int:
+def _cmd_benchmark_deep_preflight(args: argparse.Namespace) -> int:
     from local_lens.deep_analysis.runner import run_preflight
 
-    report = run_preflight()
-    print(f"Deep benchmark {report.benchmark_version}\n")
+    round_name = args.round  # None | "free" | "paid"
+    report = run_preflight(round_name=round_name)
+    print(f"Deep benchmark {report.benchmark_version} -- round: {report.round}\n")
     print(f"Fixtures: {report.fixture_count}\n")
 
     for f in report.finalists:
@@ -184,13 +185,21 @@ def _cmd_benchmark_deep_preflight() -> int:
         print(f"  configured: {'yes' if f.configured else 'no'}")
         if not f.executable:
             print(f"  status: not executable ({f.unavailable_reason})")
+            print()
+            continue
+        print(f"  requests: {f.requests}")
+        print(f"  cost classification: {f.cost_classification.replace('_', ' ').upper()}")
+        print(f"  nominal provider price: ${f.nominal_cost_usd:.4f}")
+        if f.cost_classification in ("zero_cost_eligible", "likely_free"):
+            print(f"  expected benchmark charge: ${f.expected_actual_charge_usd:.4f} (reason: {f.cost_classification.replace('_', ' ')} -- no payment method required)")
+            if f.within_free_tier_request_limit is not None:
+                print(f"  within free-tier daily request limit: {'yes' if f.within_free_tier_request_limit else 'NO -- would exceed documented RPD'}")
         else:
-            print(f"  requests: {f.requests}")
-            print(f"  estimated max cost: ${f.estimated_max_cost_usd:.4f}")
+            print(f"  expected benchmark charge: ${f.expected_actual_charge_usd:.4f}")
         print()
 
     print(f"Total executable requests: {report.total_executable_requests}")
-    print(f"Estimated maximum API cost: ${report.estimated_max_cost_usd:.4f}")
+    print(f"Estimated maximum API cost (counted toward --max-cost-usd): ${report.estimated_max_cost_usd:.4f}")
 
     if report.warnings:
         print("\nWarnings:")
@@ -208,10 +217,17 @@ def _cmd_benchmark_deep_run(args: argparse.Namespace) -> int:
     if args.max_cost_usd is None:
         print("Remote benchmark execution requires --max-cost-usd <ceiling>.\nNo requests were sent.", file=sys.stderr)
         return 1
+    if args.round == "free" and not args.free_tier_only:
+        print(
+            "A free-round benchmark still sends images to a third party and requires --free-tier-only "
+            "in addition to --confirm-remote, even though it's expected to cost nothing.\nNo requests were sent.",
+            file=sys.stderr,
+        )
+        return 1
 
     from local_lens.deep_analysis.runner import BudgetExceeded, NoExecutableFinalists, execute_benchmark, run_preflight
 
-    preflight = run_preflight()
+    preflight = run_preflight(round_name=args.round)
     print(f"Estimated maximum: ${preflight.estimated_max_cost_usd:.4f}")
     print(f"Configured ceiling: ${args.max_cost_usd:.4f}\n")
 
@@ -226,12 +242,17 @@ def _cmd_benchmark_deep_run(args: argparse.Namespace) -> int:
             max_cost_usd=args.max_cost_usd,
             output_dir=Path(args.output),
             confirm_remote=True,
+            round_name=args.round,
+            free_tier_only=args.free_tier_only,
         )
     except NoExecutableFinalists as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     except BudgetExceeded as exc:
         print(f"ABORTED: {exc}", file=sys.stderr)
+        return 1
+    except PermissionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
 
     print(f"Run id: {summary.run_id}")
@@ -264,7 +285,7 @@ def cmd_benchmark_deep(args: argparse.Namespace) -> int:
     if args.dry_run:
         return _cmd_benchmark_deep_dry_run()
     if args.preflight:
-        return _cmd_benchmark_deep_preflight()
+        return _cmd_benchmark_deep_preflight(args)
     return _cmd_benchmark_deep_run(args)
 
 
@@ -334,6 +355,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     benchmark_deep.add_argument(
         "--output", default="benchmarks_remote/results", help="Output directory for --run (default: %(default)s)"
+    )
+    benchmark_deep.add_argument(
+        "--round",
+        choices=["free", "paid"],
+        default=None,
+        help="Restrict to Round 1 (free, zero-cost-eligible finalists) or Round 2 (paid). Default: all finalists.",
+    )
+    benchmark_deep.add_argument(
+        "--free-tier-only",
+        action="store_true",
+        help="Required alongside --run --round free -- explicit acknowledgment that a free-cost run still sends "
+        "images to a third party; also excludes zero-cost-eligible finalists' nominal price from --max-cost-usd.",
     )
     benchmark_deep.set_defaults(func=cmd_benchmark_deep)
 

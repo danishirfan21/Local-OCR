@@ -44,7 +44,7 @@ from local_lens.deep_analysis.prompts import DEEP_ANALYSIS_PROMPT
 from local_lens.deep_analysis.response_parsing import parse_structured_reply
 from local_lens.models import DocumentResult
 
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"  # gemini-2.5-flash-lite is scheduled to retire no earlier than 2026-10-16
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 

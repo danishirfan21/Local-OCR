@@ -12,26 +12,43 @@ has been made from this repository.
 | Flag | Network calls | Purpose |
 |---|---|---|
 | `--dry-run` | zero | Enumerate fixtures + candidates + a flat cost estimate (pre-existing) |
-| `--preflight` | zero | Report configured/executable finalists, exact request count, estimated maximum cost, and privacy warnings |
-| `--run --confirm-remote --max-cost-usd <ceiling>` | **real** | Execute the bake-off |
+| `--preflight [--round free\|paid]` | zero | Report configured/executable finalists, exact request count, cost classification, expected charge, and privacy warnings |
+| `--run --confirm-remote --max-cost-usd <ceiling> [--round free\|paid] [--free-tier-only]` | **real** | Execute the bake-off |
 
-`--run` alone does nothing -- both `--confirm-remote` and `--max-cost-usd`
-are separately required, and the underlying `execute_benchmark()` function
-itself refuses to run without an explicit `confirm_remote=True` argument
-even if called directly from Python, not just through the CLI. This is
-deliberate defense in depth: an absentminded `--run` does not spend money.
+`--round` restricts to Round 1 (`free` -- Groq, Gemini) or Round 2 (`paid`
+-- OpenAI, Anthropic, Fireworks); omit it to consider every finalist
+regardless of round. `--run` alone does nothing -- both `--confirm-remote`
+and `--max-cost-usd` are separately required, and the underlying
+`execute_benchmark()` function itself refuses to run without an explicit
+`confirm_remote=True` argument even if called directly from Python, not
+just through the CLI. This is deliberate defense in depth: an
+absentminded `--run` does not spend money.
+
+**`--free-tier-only` is additionally required whenever `--round free` is
+combined with `--run`.** A free-cost run still sends images to a third
+party, so it gets its own explicit acknowledgment on top of
+`--confirm-remote` -- "free" is not the same claim as "no third party sees
+anything." Setting it also changes cost accounting: finalists classified
+`zero_cost_eligible`/`likely_free` (Groq, Gemini) have their real,
+published per-token price recorded for transparency but excluded from what
+counts against `--max-cost-usd` -- without this, a strict `--max-cost-usd
+0.00` would be unsatisfiable purely because the pricing metadata is
+nonzero even though the account can't actually be charged. Paid-
+classification finalists are never exempted from the ceiling, in any
+round -- `--free-tier-only` has no effect on them.
 
 Before any request, the ceiling is checked against the preflight's
-estimated maximum:
+estimated maximum (for `--round free --free-tier-only`, this is `$0.00` by
+construction, since zero-cost-eligible finalists don't count toward it):
 
 ```text
-Estimated maximum: $0.22
-Configured ceiling: $0.25
+Estimated maximum: $0.00
+Configured ceiling: $0.00
 
 Proceeding.
 ```
 
-or
+or, for a paid round:
 
 ```text
 Estimated maximum: $0.31
@@ -56,8 +73,12 @@ mode uses, because the bake-off needs multiple providers configured
 simultaneously:
 
 ```env
-LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=
+# Round 1 (free)
+LOCAL_LENS_BENCHMARK_GROQ_API_KEY=
 LOCAL_LENS_BENCHMARK_GEMINI_API_KEY=
+
+# Round 2 (paid)
+LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=
 LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY=
 LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY=
 ```
@@ -66,6 +87,16 @@ See `.env.example`. A blank value, or an obvious placeholder (`changeme`,
 `your-api-key`, `xxx`, etc.), is treated as **not configured** --
 `local_lens/deep_analysis/finalists.py`'s `credential_configured()` never
 reports a placeholder as real.
+
+Hugging Face Inference Providers has **no** `LOCAL_LENS_BENCHMARK_HF_TOKEN`
+variable and no entry in the finalist registry -- it was researched and
+deliberately excluded from Round 1 (only $0.10/month free credit, unconfirmed
+per-request pricing for the one genuinely distinct vision model found; see
+`docs/DEEP_PROVIDER_EVALUATION.md` section 0). If it's reconsidered later
+with confirmed pricing and a small capped request count, it would need a
+new `FinalistConfig` entry and possibly a new adapter (HF's routed
+OpenAI-compatible endpoint may or may not fit the generic provider as-is --
+not verified this pass).
 
 Model, endpoint, and pricing are fixed per finalist in
 `local_lens/deep_analysis/finalists.py` -- there is no way to silently
@@ -175,18 +206,36 @@ wired into the app itself, not something already built.
 ## Exact execution steps (for when this is approved)
 
 ```bash
-# 1. Set credentials for whichever finalists you want to include (a subset
-#    is fine -- unconfigured finalists are simply excluded, not an error).
-export LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=...
-export LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY=...
-# ... etc.
+# Round 1 (free) -- run this first.
+# 1. Set credentials for whichever free finalists you want to include (a
+#    subset is fine -- unconfigured finalists are simply excluded).
+export LOCAL_LENS_BENCHMARK_GROQ_API_KEY=...
+export LOCAL_LENS_BENCHMARK_GEMINI_API_KEY=...
 
 # 2. Confirm what would run and its cost, with zero network calls:
-local-lens benchmark-deep --preflight
+local-lens benchmark-deep --preflight --round free
 
 # 3. Only after reviewing that output, run for real:
 local-lens benchmark-deep \
   --run \
+  --round free \
+  --confirm-remote \
+  --free-tier-only \
+  --max-cost-usd 0.00 \
+  --output benchmarks_remote/results/
+```
+
+```bash
+# Round 2 (paid) -- only if Round 1's results warrant further testing.
+export LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=...
+export LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY=...
+export LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY=...
+
+local-lens benchmark-deep --preflight --round paid
+
+local-lens benchmark-deep \
+  --run \
+  --round paid \
   --confirm-remote \
   --max-cost-usd 0.25 \
   --output benchmarks_remote/results/

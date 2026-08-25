@@ -10,22 +10,41 @@ benchmark-deep --preflight` / `--run` -- is now built and exercised only
 against mocked transports in tests; nothing in this codebase has made a
 real call to any of these providers.
 
-## Finalists (5, not "every available model")
+## Finalists: Round 1 (free) and Round 2 (paid)
 
-Selected for diversity per the task's own guidance -- one strong
-proprietary general VLM, one cheap proprietary VLM, PaddleOCR-VL remote
-(kept in the registry to answer whether self-hosting it is still worth it,
-but excluded from execution -- see below), one strong hosted open VLM, and
-one adapter-diversity test case. Canonical config for each lives in
-`local_lens/deep_analysis/finalists.py`:
+The plan is now free-first (see `docs/DEEP_PROVIDER_EVALUATION.md` section
+0): before spending any of the approved $0.25, run the finalists whose
+free tier is verified to require no payment method and has no documented
+auto-billing mechanism. Canonical config for every finalist -- including
+its `round` and `cost_classification` -- lives in
+`local_lens/deep_analysis/finalists.py`.
+
+### Round 1 -- free (estimated cost: $0.00, no payment method required)
+
+| Label | Adapter | Model | Credential env var | Why this one |
+|---|---|---|---|---|
+| Groq Qwen3.6-27B | `OpenAICompatibleVisionProvider` (exact-match OpenAI shape, no new code) | `qwen/qwen3.6-27b` | `LOCAL_LENS_BENCHMARK_GROQ_API_KEY` | Confirmed by Groq's own docs: image input, OCR, document/chart understanding, multilingual, JSON Object Mode. Free tier requires no payment method; RPD 1,000 comfortably covers the 12-fixture corpus. |
+| Gemini 3.1 Flash-Lite | `GeminiProvider` (native, not the OpenAI-compat beta layer) | `gemini-3.1-flash-lite` | `LOCAL_LENS_BENCHMARK_GEMINI_API_KEY` | Current-generation, non-deprecated successor to `gemini-2.5-flash-lite` (which is scheduled to retire no earlier than 2026-10-16). Free tier confirmed to require no billing account; billing needs a separate, explicit, manual action. |
+
+Hugging Face Inference Providers was researched and deliberately **omitted
+from Round 1**: only $0.10/month free credit, and exact per-request
+pricing for the one genuinely distinct vision model found
+(`Qwen/Qwen3-VL-8B-Instruct` via Featherless AI) couldn't be confirmed
+from static docs -- see `docs/DEEP_PROVIDER_EVALUATION.md` section 0 for
+the full reasoning.
+
+### Round 2 -- paid ($0.25 hard ceiling, not executed without separate approval)
 
 | # | Label | Adapter | Model | Credential env var | Why this one |
 |---|---|---|---|---|---|
 | 1 | OpenAI GPT-5 | `OpenAICompatibleVisionProvider` | `gpt-5` | `LOCAL_LENS_BENCHMARK_OPENAI_API_KEY` | Strong proprietary baseline; zero new adapter code |
-| 2 | Gemini 2.5 Flash-Lite | `GeminiProvider` (native, not the OpenAI-compat beta layer) | `gemini-2.5-flash-lite` | `LOCAL_LENS_BENCHMARK_GEMINI_API_KEY` | Cheapest proprietary option; native adapter gives real `response_mime_type`/`usageMetadata` support instead of routing through Google's own beta compatibility shim |
-| 3 | PaddleOCR-VL-1.6 (remote vLLM) | none -- no endpoint provisioned | `PaddleOCR-VL-1.6` | none | **Excluded from execution** (`executable_in_first_run=False`) -- listed so the comparison isn't silently missing it, not because it's runnable |
-| 4 | Qwen2.5-VL-72B-Instruct (Fireworks AI) | `OpenAICompatibleVisionProvider` | `accounts/fireworks/models/qwen2p5-vl-72b-instruct` | `LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY` | Strongest hosted-open-VLM catalog found (confirmed, not inferred); zero new adapter code |
-| 5 | Claude Sonnet 5 | `AnthropicProvider` (dedicated -- Messages API confirmed non-OpenAI-compatible) | `claude-sonnet-5` | `LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY` | Tests whether Anthropic's own explicit low-confidence/anti-hallucination vision guidance produces a measurably lower `extra_content_rate` |
+| 2 | Qwen2.5-VL-72B-Instruct (Fireworks AI) | `OpenAICompatibleVisionProvider` | `accounts/fireworks/models/qwen2p5-vl-72b-instruct` | `LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY` | Strongest hosted-open-VLM catalog found (confirmed, not inferred); zero new adapter code |
+| 3 | Claude Sonnet 5 | `AnthropicProvider` (dedicated -- Messages API confirmed non-OpenAI-compatible) | `claude-sonnet-5` | `LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY` | Tests whether Anthropic's own explicit low-confidence/anti-hallucination vision guidance produces a measurably lower `extra_content_rate` |
+| -- | PaddleOCR-VL-1.6 (remote vLLM) | none -- no endpoint provisioned | `PaddleOCR-VL-1.6` | none | **Excluded from execution in every round** (`executable_in_first_run=False`) -- listed so the comparison isn't silently missing it, not because it's runnable |
+
+Round 2 is only worth running if Round 1's results don't already answer
+"could Local Lens Deep Analyze ship against a free hosted vision API"
+well enough on their own.
 
 Model names/endpoints are recorded from documentation research
 (`docs/DEEP_PROVIDER_EVALUATION.md`), not confirmed by a live API call
@@ -34,15 +53,14 @@ execution time, that finalist's requests will fail cleanly and it gets
 dropped after repeated failures (see `docs/REMOTE_BENCHMARK_EXECUTION.md`
 "Abort and drop conditions"), not silently substituted.
 
-Deliberately excluded from the first round, with reasons: Claude Opus 5/
-Fable 5 (too expensive to justify before cheaper Sonnet 5 data exists),
-Gemini 3.1 Pro (pricing wasn't confirmed in this research pass -- add once
-confirmed), Mistral OCR (needs a new bespoke, non-OpenAI-compatible
-adapter -- worth a second round if round one shows general VLMs
-underperform on OCR fidelity specifically), Azure/Google/AWS specialist
-OCR (off-target for arbitrary-screenshot use case per the evaluation doc),
-OpenRouter (would just re-test Fireworks/Together models through an extra
-hop -- redundant with #4 in a first round).
+Deliberately excluded from both rounds, with reasons: Claude Opus 5/Fable 5
+(too expensive to justify before cheaper Sonnet 5 data exists), Gemini 3.1
+Pro (pricing wasn't confirmed in this research pass -- add once confirmed),
+Mistral OCR (needs a new bespoke, non-OpenAI-compatible adapter -- worth a
+future round if free/paid VLMs underperform on OCR fidelity specifically),
+Azure/Google/AWS specialist OCR (off-target for arbitrary-screenshot use
+case per the evaluation doc), OpenRouter (would just re-test Fireworks/
+Together models through an extra hop -- redundant with Fireworks itself).
 
 ## Benchmark corpus (12 fixtures, reused from the existing corpus)
 
@@ -71,72 +89,92 @@ this pass).
 
 ## Proposed execution scale
 
+**Round 1 (free)**:
+
 ```
-Finalists:              5
+Finalists:              2  (Groq, Gemini)
 Fixtures:               12
 Requests per finalist:  12
-Total requests:         60
+Total requests:         24
+Estimated maximum cost: $0.00 (both finalists are cost_classification=zero_cost_eligible --
+                         their nominal per-token price is never counted toward --max-cost-usd
+                         when --free-tier-only is set; see finalists.py's module docstring)
 ```
 
-Estimated maximum cost (token-billed finalists only, at ~1,000 input /
-~500 output tokens per request -- a conservative upper-bound assumption,
-not a real usage measurement):
+**Round 2 (paid, only if Round 1 doesn't already answer the product
+question)**, unchanged from the original estimate:
 
 ```
+Finalists:              3  (OpenAI, Fireworks, Anthropic)
+Fixtures:               12
+Requests per finalist:  12
+Total requests:         36
+
 OpenAI GPT-5              ~$0.075
-Gemini 2.5 Flash-Lite      ~$0.004
 Qwen2.5-VL-72B (Fireworks) ~$0.016
 Claude Sonnet 5            ~$0.126
                            -------
 Token-billed subtotal:     ~$0.22 maximum
 ```
 
-PaddleOCR-VL is GPU-time-billed, not token-billed -- its cost depends on
-which serverless GPU host is chosen and is not estimated here (see
-`docs/DEEP_PROVIDER_EVALUATION.md` section 1's PaddleOCR-VL notes for the
-GPU footprint discussion). Standing up a scale-to-zero endpoint for a
-60-image benchmark is very unlikely to be the dominant cost, but it does
-require actually deploying a GPU server, which itself needs separate
-approval (see below).
+PaddleOCR-VL is GPU-time-billed, not token-billed, and is excluded from
+execution entirely (no endpoint provisioned) -- see
+`docs/DEEP_PROVIDER_EVALUATION.md` section 1's PaddleOCR-VL notes.
 
-**Total estimated maximum bake-off cost: well under $1 for the four
-API-based finalists; PaddleOCR-VL's cost depends on the hosting decision
-and isn't included in that figure.**
+**Total estimated maximum spend: $0.00 for Round 1; well under $0.25 for
+Round 2 if it's ever run.**
 
 ## What's needed before this runs for real
 
-1. **API keys** for OpenAI, Google (Gemini), Anthropic, and Fireworks AI --
-   `local-lens benchmark-deep --preflight` (zero network calls) reports
-   exactly which of these are currently configured; as of this pass, none
-   are.
-2. **Explicit user approval to spend money** -- even though the token-
-   billed total is small (well under $1), no paid API request happens
-   without approval, regardless of how small. `--run` itself will not
-   proceed without both `--confirm-remote` and `--max-cost-usd`.
+**Round 1**: API keys for Groq and Gemini --
+`local-lens benchmark-deep --preflight --round free` (zero network calls)
+reports exactly which are currently configured; as of this pass, none are.
+No spending approval is needed beyond the general acknowledgment that
+free-tier usage still sends images to a third party (`--confirm-remote`
+and `--free-tier-only` both required).
 
-PaddleOCR-VL is deliberately out of scope for this first executable round
-entirely -- it's excluded in `finalists.py`
-(`executable_in_first_run=False`), so no GPU-provisioning decision is
-needed to run the first bake-off. Provisioning a remote PaddleOCR-VL
-endpoint (Modal was the cleaner-documented managed-GPU option found in
-research; RunPod Serverless the alternative) remains a separate, later
-decision if the first round's results make it worth revisiting.
+**Round 2** (if pursued later): API keys for OpenAI, Anthropic, and
+Fireworks AI, plus explicit user approval to spend money -- `--run` will
+not proceed without both `--confirm-remote` and `--max-cost-usd`.
 
-## Exact command that would execute the bake-off (NOT run in this session)
+PaddleOCR-VL is deliberately out of scope for every round -- it's excluded
+in `finalists.py` (`executable_in_first_run=False`), so no GPU-provisioning
+decision is needed to run either bake-off round. Provisioning a remote
+PaddleOCR-VL endpoint (Modal was the cleaner-documented managed-GPU option
+found in research; RunPod Serverless the alternative) remains a separate,
+later decision if the results make it worth revisiting.
+
+## Exact commands that would execute the bake-off (NOT run in this session)
 
 ```bash
-# 1. Check what's configured and what it would cost -- zero network calls:
-local-lens benchmark-deep --preflight
+# Round 1 (free) -- check first, zero network calls:
+local-lens benchmark-deep --preflight --round free
 
-# 2. Configure whichever finalists' credentials you want included:
-export LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=...
+# Configure Round 1 credentials:
+export LOCAL_LENS_BENCHMARK_GROQ_API_KEY=...
 export LOCAL_LENS_BENCHMARK_GEMINI_API_KEY=...
+
+# Only after reviewing the preflight output with real credentials set:
+local-lens benchmark-deep \
+  --run \
+  --round free \
+  --confirm-remote \
+  --free-tier-only \
+  --max-cost-usd 0.00 \
+  --output benchmarks_remote/results/
+```
+
+```bash
+# Round 2 (paid, only if Round 1 warrants it) -- check first:
+local-lens benchmark-deep --preflight --round paid
+
+export LOCAL_LENS_BENCHMARK_OPENAI_API_KEY=...
 export LOCAL_LENS_BENCHMARK_ANTHROPIC_API_KEY=...
 export LOCAL_LENS_BENCHMARK_FIREWORKS_API_KEY=...
 
-# 3. Only after reviewing step 1's output again with real credentials set:
 local-lens benchmark-deep \
   --run \
+  --round paid \
   --confirm-remote \
   --max-cost-usd 0.25 \
   --output benchmarks_remote/results/

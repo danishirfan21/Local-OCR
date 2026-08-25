@@ -137,6 +137,26 @@ def test_benchmark_deep_run_aborts_when_estimate_exceeds_ceiling(capsys, monkeyp
     assert "Estimated maximum:" in out.out
 
 
+def test_benchmark_deep_preflight_round_free_excludes_paid(capsys):
+    exit_code = cli.main(["benchmark-deep", "--preflight", "--round", "free"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Groq" in out
+    assert "Gemini" in out
+    assert "OpenAI GPT-5" not in out
+    assert "round: free" in out
+
+
+def test_benchmark_deep_run_free_round_requires_free_tier_only(capsys):
+    exit_code = cli.main(
+        ["benchmark-deep", "--run", "--round", "free", "--confirm-remote", "--max-cost-usd", "0.00"]
+    )
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "--free-tier-only" in err
+    assert "No requests were sent." in err
+
+
 def test_benchmark_deep_run_with_nothing_configured_makes_no_network_call(capsys, monkeypatch):
     import urllib.request
 
