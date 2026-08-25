@@ -39,3 +39,26 @@ def test_setting_writes_to_the_backing_ini_file_not_elsewhere(tmp_path):
     settings.shortcut = "Ctrl+Alt+L"
     assert ini_path.exists()
     assert "Ctrl+Alt+L" in ini_path.read_text(encoding="utf-8")
+
+
+def test_v6_5_preference_defaults(tmp_path):
+    settings = _isolated_settings(tmp_path)
+    assert settings.start_with_windows is False
+    assert settings.auto_copy_fast_result is False
+    assert settings.show_result_popup is True
+    assert settings.close_popup_after_copy is False
+
+
+def test_v6_5_preferences_persist_across_instances_backed_by_the_same_file(tmp_path):
+    ini_path = str(tmp_path / "settings.ini")
+    first = AppSettings(backing=QSettings(ini_path, QSettings.Format.IniFormat))
+    first.start_with_windows = True
+    first.auto_copy_fast_result = True
+    first.show_result_popup = False
+    first.close_popup_after_copy = True
+
+    second = AppSettings(backing=QSettings(ini_path, QSettings.Format.IniFormat))
+    assert second.start_with_windows is True
+    assert second.auto_copy_fast_result is True
+    assert second.show_result_popup is False
+    assert second.close_popup_after_copy is True

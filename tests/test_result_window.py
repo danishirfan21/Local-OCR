@@ -243,6 +243,29 @@ def test_urdu_content_does_not_force_global_rtl_layout(qapp):
     assert pane.text_view.layoutDirection() != Qt.LayoutDirection.RightToLeft
 
 
+def test_content_pane_emits_copied_signal_on_text_copy(qapp):
+    pane = ContentPane()
+    pane.set_result(_result("copy me", "text"), allow_table_markdown_fallback=False)
+    received = []
+    pane.copied.connect(lambda: received.append(1))
+    pane.copy_button.click()
+    assert received == [1]
+
+
+def test_result_window_text_copied_fires_for_fast_and_deep_tabs(qapp):
+    window = ResultWindow()
+    window.show_fast_result(_result("fast text", "text"), deep_available=True)
+    received = []
+    window.text_copied.connect(lambda: received.append(1))
+
+    window.fast_pane.copy_button.click()
+    assert received == [1]
+
+    window.show_deep_result(_result("deep text", "text"))
+    window.deep_pane.copy_button.click()
+    assert received == [1, 1]
+
+
 def test_escape_hides_window_without_closing_app(qapp):
     from PySide6.QtCore import QEvent, Qt
     from PySide6.QtGui import QKeyEvent

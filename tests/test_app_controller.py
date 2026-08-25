@@ -373,3 +373,204 @@ def test_capture_and_fast_ocr_make_zero_network_calls_until_deep_clicked(qapp, t
 
     assert controller.result_window.isVisible()  # reached here without raising -> no network call happened
     controller.quit()
+
+
+# -- V6.5: settings-driven capture/result behavior -----------------------
+
+
+def test_start_hidden_keeps_main_window_hidden_at_startup(qapp, tmp_path):
+    settings = AppSettings(backing=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat))
+    hotkey_manager = GlobalHotkeyManager(adapter=FakeAdapter())
+    controller = DesktopApplication(
+        qapp, settings=settings, hotkey_manager=hotkey_manager, enable_warmup=False, start_hidden=True
+    )
+    assert not controller.main_window.isVisible()
+    controller.quit()
+
+
+def test_capture_now_button_starts_capture(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    controller = _controller(qapp, tmp_path)
+
+    controller.main_window.capture_button.click()
+    _pump_past_hide_settle(qapp)
+
+    assert controller.capture.is_active
+    controller.capture._teardown_overlay()
+    controller.quit()
+
+
+def test_show_result_popup_disabled_still_runs_ocr_but_never_shows_the_window(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    controller = _controller(qapp, tmp_path)
+    controller.settings.show_result_popup = False
+    _capture_one_result(controller, qapp)
+
+    assert not controller.result_window.isVisible()
+    assert controller.result_window.fast_pane.text_view.toPlainText() == "extracted text"
+    controller.quit()
+
+
+def test_auto_copy_enabled_copies_fast_text_to_clipboard(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    controller = _controller(qapp, tmp_path)
+    controller.settings.auto_copy_fast_result = True
+    _capture_one_result(controller, qapp)
+
+    assert QGuiApplication.clipboard().text() == "extracted text"
+    controller.quit()
+
+
+def test_auto_copy_disabled_by_default_leaves_clipboard_untouched(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    QGuiApplication.clipboard().setText("sentinel-untouched")
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+
+    assert QGuiApplication.clipboard().text() == "sentinel-untouched"
+    controller.quit()
+
+
+def test_auto_copy_skips_empty_result(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    class _FakeEmptyOCRWorker(_FakeOCRWorker):
+        def start(self):
+            self.succeeded.emit(_fake_document_result(text=""))
+            self.finished.emit()
+
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeEmptyOCRWorker)
+
+    QGuiApplication.clipboard().setText("sentinel-untouched")
+    controller = _controller(qapp, tmp_path)
+    controller.settings.auto_copy_fast_result = True
+    _capture_one_result(controller, qapp)
+
+    assert QGuiApplication.clipboard().text() == "sentinel-untouched"
+    controller.quit()
+
+
+def test_auto_copy_skips_fast_ocr_failure(qapp, tmp_path, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    class _FakeFailingOCRWorker(_FakeOCRWorker):
+        def start(self):
+            self.failed.emit("engine exploded")
+            self.finished.emit()
+
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeFailingOCRWorker)
+
+    QGuiApplication.clipboard().setText("sentinel-untouched")
+    controller = _controller(qapp, tmp_path)
+    controller.settings.auto_copy_fast_result = True
+    _capture_one_result(controller, qapp)
+
+    assert QGuiApplication.clipboard().text() == "sentinel-untouched"
+    controller.quit()
+
+
+def test_close_after_copy_hides_popup_when_copy_button_clicked(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    controller = _controller(qapp, tmp_path)
+    controller.settings.close_popup_after_copy = True
+    _capture_one_result(controller, qapp)
+    assert controller.result_window.isVisible()
+
+    controller.result_window.fast_pane.copy_button.click()
+    assert not controller.result_window.isVisible()
+    controller.quit()
+
+
+def test_close_after_copy_disabled_by_default_leaves_popup_open(qapp, tmp_path, monkeypatch):
+    _patch_capture(monkeypatch)
+    monkeypatch.setattr("desktop.app_controller.OCRWorker", _FakeOCRWorker)
+
+    controller = _controller(qapp, tmp_path)
+    _capture_one_result(controller, qapp)
+    controller.result_window.fast_pane.copy_button.click()
+
+    assert controller.result_window.isVisible()
+    controller.quit()
+
+
+def test_settings_dialog_persists_v6_5_toggles(qapp, tmp_path, monkeypatch):
+    class _FakeSettingsDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def shortcut_text(self):
+            return "Ctrl+Shift+Space"
+
+        def start_with_windows(self):
+            return False
+
+        def auto_copy_fast_result(self):
+            return True
+
+        def show_result_popup(self):
+            return False
+
+        def close_popup_after_copy(self):
+            return False
+
+    monkeypatch.setattr("desktop.app_controller.SettingsDialog", _FakeSettingsDialog)
+    controller = _controller(qapp, tmp_path)
+
+    controller._on_settings_requested()
+
+    assert controller.settings.auto_copy_fast_result is True
+    assert controller.settings.show_result_popup is False
+    controller.quit()
+
+
+def test_settings_dialog_start_with_windows_toggle_calls_startup_module(qapp, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("desktop.app_controller.set_startup_enabled", lambda enabled: calls.append(enabled))
+
+    class _FakeSettingsDialog:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def shortcut_text(self):
+            return "Ctrl+Shift+Space"
+
+        def start_with_windows(self):
+            return True
+
+        def auto_copy_fast_result(self):
+            return False
+
+        def show_result_popup(self):
+            return True
+
+        def close_popup_after_copy(self):
+            return False
+
+    monkeypatch.setattr("desktop.app_controller.SettingsDialog", _FakeSettingsDialog)
+    controller = _controller(qapp, tmp_path)
+
+    controller._on_settings_requested()
+
+    assert calls == [True]
+    assert controller.settings.start_with_windows is True
+    controller.quit()
