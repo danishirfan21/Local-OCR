@@ -10,6 +10,7 @@ happens on Quit -- lives here, not scattered across widgets.
 
 from __future__ import annotations
 
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QDialog
 
 from local_lens.deep_analysis.production import production_gemini_configured
@@ -28,6 +29,7 @@ from desktop.result.privacy_dialog import DeepPrivacyDialog
 from desktop.result.window import ResultWindow
 from desktop.settings import AppSettings
 from desktop.settings_dialog import SettingsDialog
+from desktop.startup import set_enabled as set_startup_enabled
 from desktop.tray import TrayController
 from desktop.warmup_worker import WarmupWorker
 
@@ -44,6 +46,7 @@ class DesktopApplication:
         settings: AppSettings | None = None,
         hotkey_manager: GlobalHotkeyManager | None = None,
         enable_warmup: bool = True,
+        start_hidden: bool = False,
     ):
         setup_logging()
         logger.info("startup")
@@ -55,9 +58,13 @@ class DesktopApplication:
 
         self.main_window = MainWindow()
         self.main_window.hide_to_tray_enabled = True
+        self.main_window.capture_requested.connect(self._start_capture)
+        self.main_window.set_shortcut_display(self.settings.shortcut)
+        self.main_window.set_deep_status(production_gemini_configured(load_env()))
 
         self.result_window = ResultWindow()
         self.result_window.deep_requested.connect(self._on_deep_requested)
+        self.result_window.text_copied.connect(self._on_result_copied)
 
         self._current_image_bytes: bytes | None = None
         self._fast_worker: OCRWorker | None = None
@@ -93,9 +100,10 @@ class DesktopApplication:
             self.tray.tray_icon.setToolTip("Local Lens -- starting OCR…")
             self.warmup_worker.start()
 
-        # Dev-default: show on startup (item 7) -- "start minimized" is a
-        # future Settings toggle.
-        self.main_window.show()
+        # Launched via Windows startup -> stay in the tray only (item 6);
+        # launched manually -> show the main window as before (item 7).
+        if not start_hidden:
+            self.main_window.show()
 
     # -- hotkey / settings -----------------------------------------------
 
@@ -112,24 +120,44 @@ class DesktopApplication:
     def _on_warmup_finished(self) -> None:
         logger.info("OCR ready")
         self.tray.tray_icon.setToolTip("Local Lens -- ready")
+        self.main_window.set_readiness("Fast OCR ready")
 
     def _on_settings_requested(self) -> None:
         gemini_configured = production_gemini_configured(load_env())
-        dialog = SettingsDialog(self.settings.shortcut, gemini_configured, parent=self.main_window)
+        dialog = SettingsDialog(
+            self.settings.shortcut,
+            gemini_configured,
+            start_with_windows=self.settings.start_with_windows,
+            auto_copy_fast_result=self.settings.auto_copy_fast_result,
+            show_result_popup=self.settings.show_result_popup,
+            close_popup_after_copy=self.settings.close_popup_after_copy,
+            parent=self.main_window,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         new_shortcut = dialog.shortcut_text()
-        if not new_shortcut or new_shortcut == self.settings.shortcut or not is_supported(new_shortcut):
-            return
+        if new_shortcut and new_shortcut != self.settings.shortcut and is_supported(new_shortcut):
+            previous = self.settings.shortcut
+            if self._register_hotkey(new_shortcut):
+                self.settings.shortcut = new_shortcut
+                self.main_window.set_shortcut_display(new_shortcut)
+            else:
+                # Registration failed -- restore the previously working
+                # shortcut rather than leaving nothing registered (item 28).
+                self._register_hotkey(previous)
 
-        previous = self.settings.shortcut
-        if self._register_hotkey(new_shortcut):
-            self.settings.shortcut = new_shortcut
-        else:
-            # Registration failed -- restore the previously working
-            # shortcut rather than leaving nothing registered (item 28).
-            self._register_hotkey(previous)
+        self.settings.auto_copy_fast_result = dialog.auto_copy_fast_result()
+        self.settings.show_result_popup = dialog.show_result_popup()
+        self.settings.close_popup_after_copy = dialog.close_popup_after_copy()
+
+        new_start_with_windows = dialog.start_with_windows()
+        if new_start_with_windows != self.settings.start_with_windows:
+            try:
+                set_startup_enabled(new_start_with_windows)
+                self.settings.start_with_windows = new_start_with_windows
+            except OSError as exc:
+                logger.warning("failed to update startup registration: %s", exc)
 
     # -- windows -----------------------------------------------------------
 
@@ -164,14 +192,15 @@ class DesktopApplication:
         self.capture.start()
 
     def _on_capture_finished(self, capture_result: CaptureResult) -> None:
-        logger.info("capture complete -- showing result popup")
+        logger.info("capture complete")
         self._current_image_bytes = capture_result.png_bytes
-
         self.result_window.show_loading()
-        self._position_result_window(capture_result)
-        self.result_window.show()
-        self.result_window.raise_()
-        self.result_window.activateWindow()
+
+        if self.settings.show_result_popup:
+            self._position_result_window(capture_result)
+            self.result_window.show()
+            self.result_window.raise_()
+            self.result_window.activateWindow()
 
         self._start_fast_ocr(capture_result.png_bytes)
 
@@ -200,6 +229,17 @@ class DesktopApplication:
         logger.info("OCR completed")
         deep_available = production_gemini_configured(load_env())
         self.result_window.show_fast_result(result, deep_available=deep_available)
+
+        # Never auto-copies an error or empty result (item 7) -- and never
+        # a Deep result, which is a separately-designed future decision.
+        if self.settings.auto_copy_fast_result and result.text:
+            QGuiApplication.clipboard().setText(result.text)
+            if self.settings.close_popup_after_copy and self.settings.show_result_popup:
+                self.result_window.hide()
+
+    def _on_result_copied(self) -> None:
+        if self.settings.close_popup_after_copy:
+            self.result_window.hide()
 
     def _on_fast_ocr_failed(self, message: str) -> None:
         logger.info("OCR failed")

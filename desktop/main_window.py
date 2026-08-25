@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -40,6 +41,13 @@ def format_result_summary(result: DocumentResult) -> str:
 
 
 class MainWindow(QMainWindow):
+    """Doubles as the app's home/control surface (item 15) and as the
+    Open-Image result display (its original V6.1 job). The flagship
+    capture -> result path renders in ResultWindow, not here -- see
+    desktop/result/window.py's module docstring."""
+
+    capture_requested = Signal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Local Lens")
@@ -53,12 +61,24 @@ class MainWindow(QMainWindow):
         # close() so the app can actually terminate. See item 6.
         self.hide_to_tray_enabled = False
 
+        self.capture_button = QPushButton("Capture Now")
+        self.capture_button.clicked.connect(self.capture_requested)
+
         self.open_button = QPushButton("Open Image")
         self.open_button.clicked.connect(self.open_image)
 
         self.copy_button = QPushButton("Copy")
         self.copy_button.clicked.connect(self.copy_result_text)
         self.copy_button.setEnabled(False)
+
+        self.shortcut_label = QLabel()
+        self.shortcut_label.setWordWrap(True)
+
+        # Background OCR warm-up status (item 16) -- never mentions
+        # EasyOCR or any engine name, just whether Fast OCR is ready.
+        self.readiness_label = QLabel("Starting local OCR…")
+
+        self.deep_status_label = QLabel()
 
         self.status_label = QLabel("Open an image to run Fast OCR.")
         self.status_label.setWordWrap(True)
@@ -73,12 +93,16 @@ class MainWindow(QMainWindow):
         self.result_view.setPlaceholderText("Extracted text will appear here.")
 
         button_row = QHBoxLayout()
+        button_row.addWidget(self.capture_button)
         button_row.addWidget(self.open_button)
         button_row.addWidget(self.copy_button)
         button_row.addStretch(1)
 
         layout = QVBoxLayout()
+        layout.addWidget(self.shortcut_label)
         layout.addLayout(button_row)
+        layout.addWidget(self.readiness_label)
+        layout.addWidget(self.deep_status_label)
         layout.addWidget(self.status_label)
         layout.addWidget(self.shortcut_status_label)
         layout.addWidget(self.result_view, stretch=1)
@@ -86,6 +110,17 @@ class MainWindow(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
+
+    def set_shortcut_display(self, shortcut_text: str) -> None:
+        self.shortcut_label.setText(f"{shortcut_text}  ·  Capture anything on your screen")
+
+    def set_readiness(self, text: str) -> None:
+        self.readiness_label.setText(text)
+
+    def set_deep_status(self, configured: bool) -> None:
+        self.deep_status_label.setText(
+            "Deep Analyze: Gemini configured" if configured else "Deep Analyze: not configured (see Settings)"
+        )
 
     def open_image(self) -> None:
         path_str, _ = QFileDialog.getOpenFileName(self, "Open Image", "", _IMAGE_FILE_FILTER)

@@ -46,6 +46,8 @@ class ContentPane(QWidget):
     Copy Table/Markdown/Save CSV) -- picked from the result's classified
     content_type, never a separate widget tree per type."""
 
+    copied = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._result: DocumentResult | None = None
@@ -177,6 +179,7 @@ class ContentPane(QWidget):
 
     def _copy_to_clipboard(self, text: str) -> None:
         QGuiApplication.clipboard().setText(text)
+        self.copied.emit()
 
     def _copy_table_as_tsv(self) -> None:
         if self._table_result is None:
@@ -212,6 +215,7 @@ class ResultWindow(QWidget):
     exposes show_* state transitions."""
 
     deep_requested = Signal()
+    text_copied = Signal()  # any Copy/Copy Code/Copy Table/Copy Markdown click, either tab
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -224,6 +228,7 @@ class ResultWindow(QWidget):
 
         self.tabs = QTabWidget()
         self.fast_pane = ContentPane()
+        self.fast_pane.copied.connect(self.text_copied)
         self.tabs.addTab(self.fast_pane, "Fast")
         self.deep_pane: ContentPane | None = None
 
@@ -292,6 +297,7 @@ class ResultWindow(QWidget):
     def _ensure_deep_pane(self) -> ContentPane:
         if self.deep_pane is None:
             self.deep_pane = ContentPane()
+            self.deep_pane.copied.connect(self.text_copied)
             self.tabs.addTab(self.deep_pane, "Deep")
         return self.deep_pane
 
