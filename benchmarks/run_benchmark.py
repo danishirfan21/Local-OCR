@@ -81,8 +81,8 @@ def run(engine_names: list[str]) -> list[dict]:
             if result is not None:
                 record["block_count"] = len(result.blocks)
                 record["average_confidence"] = result.average_confidence
-                if entry["kind"] == "text":
-                    gt_text = entry["text"]
+                if entry["kind"] in ("text", "transform"):
+                    gt_text = entry["text"] if entry["kind"] == "text" else entry["base"]
                     record["cer"] = round(character_error_rate(result.text, gt_text), 3)
                     record["wer"] = round(word_error_rate(result.text, gt_text), 3)
                     record["similarity"] = round(normalized_similarity(result.text, gt_text), 3)
@@ -107,7 +107,7 @@ def print_summary(records: list[dict]) -> None:
         for r in rows:
             if r["error"]:
                 print(f"  - {r['category']}/{r['fixture']}: ERROR ({r['error']})")
-            elif r["kind"] == "text":
+            elif r["kind"] in ("text", "transform"):
                 print(
                     f"  - {r['category']}/{r['fixture']}: "
                     f"CER={r['cer']:.2f} WER={r['wer']:.2f} sim={r['similarity']:.2f} "

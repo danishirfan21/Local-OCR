@@ -78,6 +78,10 @@ class TableResult:
     header row -- callers must not assume rows[0] is a header unless this is
     set, since fabricating a header the model didn't identify would be
     misleading in exports.
+
+    `metadata` carries deterministic, computable quality indicators (row/
+    column counts, empty-cell ratio, whether cleanup removed anything) --
+    never a fabricated confidence score the backend didn't actually provide.
     """
 
     rows: list[list[str]]
@@ -86,6 +90,25 @@ class TableResult:
     confidence: float | None
     bbox: BoundingBox | None
     has_header: bool = False
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class DocumentBlock:
+    """A structured content block, for engines that expose more than flat text.
+
+    Populated only by engines with real layout/structure awareness (e.g.
+    PaddleOCR-VL's parsing_res_list) -- engines that only return flat
+    word/line-level text (EasyOCR, plain PaddleOCR) leave
+    DocumentResult.document_blocks empty rather than fabricating structure.
+    `type` values are only ever ones an engine actually returned and this
+    codebase has validated, not a speculative full taxonomy.
+    """
+
+    type: str
+    text: str
+    bbox: BoundingBox | None
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -108,6 +131,7 @@ class DocumentResult:
     tables: list[TableResult] = field(default_factory=list)
     detected_scripts: list[str] = field(default_factory=list)
     detected_languages: list[str] = field(default_factory=list)
+    document_blocks: list[DocumentBlock] = field(default_factory=list)
 
     @property
     def average_confidence(self) -> float | None:
