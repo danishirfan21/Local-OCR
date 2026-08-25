@@ -1,4 +1,14 @@
-# V6: Desktop client architecture (Windows-first)
+> **SUPERSEDED.** This document's Tauri/Rust/sidecar architecture was
+> replaced after discovering `C:` cannot safely host the MSVC Build
+> Tools/Windows SDK this machine needs to compile Tauri's Rust side, and
+> that constraint is treated as permanent rather than a disk-cleanup
+> problem. See [`docs/V6_DESKTOP_FRAMEWORK_DECISION.md`](V6_DESKTOP_FRAMEWORK_DECISION.md)
+> for the current decision (PySide6, single Python process, no IPC
+> boundary). Kept here for decision history — the research on IPC-contract
+> shape, DPI/capture strategy, and credential boundary informed the
+> replacement decision and is still referenced there.
+
+# V6: Desktop client architecture (Windows-first) [SUPERSEDED]
 
 This document is the architecture audit and decision record for turning Local
 Lens into a native Windows screenshot-intelligence utility, built alongside
