@@ -6,13 +6,15 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from desktop.main_window import MainWindow
+from desktop.app_controller import DesktopApplication
 
 
 def main() -> int:
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
+    app.setApplicationName("Local Lens")
+    app.setOrganizationName("Local Lens")
+
+    controller = DesktopApplication(app)  # noqa: F841 -- must stay alive for the app's lifetime
     return app.exec()
 
 

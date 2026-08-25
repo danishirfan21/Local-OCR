@@ -47,6 +47,11 @@ class MainWindow(QMainWindow):
 
         self._worker: OCRWorker | None = None
         self._last_result: DocumentResult | None = None
+        # When True (the default once a tray is active), the window-close
+        # button hides the window instead of exiting the app -- Quit (tray
+        # menu or app_controller.quit()) sets this False before calling
+        # close() so the app can actually terminate. See item 6.
+        self.hide_to_tray_enabled = False
 
         self.open_button = QPushButton("Open Image")
         self.open_button.clicked.connect(self.open_image)
@@ -57,6 +62,11 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel("Open an image to run Fast OCR.")
         self.status_label.setWordWrap(True)
+
+        self.shortcut_status_label = QLabel()
+        self.shortcut_status_label.setWordWrap(True)
+        self.shortcut_status_label.setStyleSheet("color: #b45309;")  # amber -- a warning, not an error
+        self.shortcut_status_label.setVisible(False)
 
         self.result_view = QPlainTextEdit()
         self.result_view.setReadOnly(True)
@@ -70,6 +80,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.addLayout(button_row)
         layout.addWidget(self.status_label)
+        layout.addWidget(self.shortcut_status_label)
         layout.addWidget(self.result_view, stretch=1)
 
         container = QWidget()
@@ -111,3 +122,26 @@ class MainWindow(QMainWindow):
         if self._last_result is None:
             return
         QGuiApplication.clipboard().setText(self._last_result.text)
+
+    def show_shortcut_warning(self, message: str) -> None:
+        self.shortcut_status_label.setText(message)
+        self.shortcut_status_label.setVisible(True)
+
+    def clear_shortcut_warning(self) -> None:
+        self.shortcut_status_label.clear()
+        self.shortcut_status_label.setVisible(False)
+
+    def closeEvent(self, event) -> None:
+        if self.hide_to_tray_enabled:
+            event.ignore()
+            self.hide()
+        else:
+            event.accept()
+
+    def bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
