@@ -223,9 +223,10 @@ process, importing `local_lens/` directly -- no Rust/Tauri, no IPC
 boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
 `docs/V6_2_TRAY_HOTKEY.md` for the tray/hotkey design,
 `docs/V6_3_CAPTURE.md` for the capture workflow,
-`docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze, and
+`docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze,
 `docs/V6_5_RELEASE_READINESS.md` for Settings, startup behavior, secret
-storage, and packaging research.
+storage, and packaging research, and
+`docs/V6_6_PACKAGING_SMOKE_TEST.md` for the portable-build smoke test.
 
 - **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
   `python -m desktop.main`): open an existing image, run Fast OCR on a
@@ -256,9 +257,17 @@ storage, and packaging research.
   after successful copy", a "Capture Now" button and readiness/Deep-status
   indicators on the main window, and packaging research (see
   `docs/V6_5_RELEASE_READINESS.md`) -- no build was executed.
-- **V6.6** — planned next: a bounded PyInstaller onedir portable-build
-  smoke test on `D:`, if it stays within the size/footprint this
-  milestone's research found safe.
+- **V6.6 — Portable Windows build smoke-tested** ✓: a bounded PyInstaller
+  `onedir` build (862MB, one invocation, entirely on `D:`) proved
+  `LocalLens.exe` launches independently of any installed Python, and a
+  live smoke test on the packaged executable confirmed the tray, global
+  hotkey, region capture, real Fast OCR (external EasyOCR model cache),
+  result popup, and clipboard Copy all work end-to-end -- see
+  `docs/V6_6_PACKAGING_SMOKE_TEST.md` for the full record, including
+  what wasn't live-verified this round (Open Image's file dialog, the
+  tray context menu) and why. Not yet a polished release.
+- **V6.7** — planned next: exact scope pending (packaging-size trim vs.
+  further UX polish, based on this milestone's findings).
 
 ## Roadmap (not built)
 
