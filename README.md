@@ -225,8 +225,10 @@ boundary. See `docs/V6_DESKTOP_FRAMEWORK_DECISION.md` for why,
 `docs/V6_3_CAPTURE.md` for the capture workflow,
 `docs/V6_4_RESULT_UX.md` for the result popup and Deep Analyze,
 `docs/V6_5_RELEASE_READINESS.md` for Settings, startup behavior, secret
-storage, and packaging research, and
-`docs/V6_6_PACKAGING_SMOKE_TEST.md` for the portable-build smoke test.
+storage, and packaging research,
+`docs/V6_6_PACKAGING_SMOKE_TEST.md` for the portable-build smoke test,
+and `docs/V6_7_PORTABLE_OPTIMIZATION.md` for the size trim and
+portability validation.
 
 - **V6.1 — Open Image + Fast OCR** ✓ (`desktop/`, run with
   `python -m desktop.main`): open an existing image, run Fast OCR on a
@@ -266,8 +268,19 @@ storage, and packaging research, and
   `docs/V6_6_PACKAGING_SMOKE_TEST.md` for the full record, including
   what wasn't live-verified this round (Open Image's file dialog, the
   tray context menu) and why. Not yet a polished release.
-- **V6.7** — planned next: exact scope pending (packaging-size trim vs.
-  further UX polish, based on this milestone's findings).
+- **V6.7 — Portable build trimmed and independently verified** ✓: the
+  packaged build is now 765MB (down from 862MB, via evidence-based
+  exclusions -- confirmed safe by tracing actual runtime imports, not
+  guessed), carries a real application icon and version metadata, and
+  was proven genuinely portable by extracting the ZIP to a fresh
+  location and launching it from an unrelated working directory with no
+  dependency on the source checkout. Fast OCR still relies on an
+  external, on-machine EasyOCR model cache rather than bundled weights --
+  see `docs/V6_7_PORTABLE_OPTIMIZATION.md` for the licensing research and
+  architecture prepared for closing that gap. Not yet a fully
+  self-contained offline release.
+- **V6.8** — planned next: self-contained EasyOCR model bundling +
+  release-candidate preparation.
 
 ## Roadmap (not built)
 
