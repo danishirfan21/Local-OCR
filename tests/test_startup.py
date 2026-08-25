@@ -59,3 +59,25 @@ def test_launch_command_is_a_non_empty_string():
     command = launch_command()
     assert isinstance(command, str) and command
     assert START_HIDDEN_FLAG in command
+
+
+def test_launch_command_dev_mode_never_hardcodes_a_bare_python_call():
+    # Dev-mode command must set a working directory (a Run-key entry has
+    # no separate "start in" field, and `python -m desktop.main` needs
+    # the repo root on sys.path) -- item 32.
+    command = launch_command()
+    assert "desktop.main" in command
+    assert START_HIDDEN_FLAG in command
+
+
+def test_launch_command_frozen_mode_points_at_the_packaged_exe(monkeypatch):
+    import desktop.startup as startup_module
+
+    monkeypatch.setattr(startup_module.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(startup_module.sys, "executable", r"D:\Local OCR\dist\LocalLens\LocalLens.exe")
+
+    command = launch_command()
+
+    assert command == '"D:\\Local OCR\\dist\\LocalLens\\LocalLens.exe" --start-hidden'
+    assert "python" not in command.lower()
+    assert "desktop.main" not in command  # frozen mode never invokes -m desktop.main
