@@ -41,6 +41,7 @@ def test_importing_deep_analysis_modules_makes_no_network_call():
     import local_lens.deep_analysis.paddle_vllm_provider  # noqa: F401
     import local_lens.deep_analysis.runner  # noqa: F401
     import local_lens.deep_analysis.sanitize  # noqa: F401
+    import local_lens.env_file  # noqa: F401
 
     from local_lens.backends import deep_backend_status
     from local_lens.deep_analysis.config import build_deep_provider

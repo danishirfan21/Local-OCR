@@ -6,6 +6,7 @@ the network or a model."""
 from __future__ import annotations
 
 import io
+import os
 
 import pytest
 from PIL import Image
@@ -25,6 +26,18 @@ def fake_image(tmp_path):
 @pytest.fixture(autouse=True)
 def _fake_fast_service(monkeypatch):
     monkeypatch.setattr(cli, "_build_fast_service", lambda engine_name: OCRService(FakeEngine()))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_from_real_dotenv(monkeypatch):
+    """CLI tests must never merge in the real project `.env` -- it may
+    contain the user's actual benchmark credentials, and a test asserting
+    "nothing is configured" or controlling env via monkeypatch.setenv/
+    delenv must not have a real key silently reappear from disk. Restores
+    the exact pre-.env-support behavior (env resolves to a plain copy of
+    os.environ) for every test in this file; tests/test_env_file.py
+    exercises the real file-reading behavior in isolation instead."""
+    monkeypatch.setattr(cli, "load_env", lambda *a, **k: dict(os.environ))
 
 
 def test_extract_fast_mode_prints_text(fake_image, capsys):

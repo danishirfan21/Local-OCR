@@ -19,11 +19,21 @@ from local_lens.backends import (
     legacy_local_deep_status,
     table_backend_status,
 )
+from local_lens.env_file import load_env
 from local_lens.export import export_table_csv, export_table_markdown, to_json, to_markdown, to_txt
 from local_lens.languages import DEFAULT_LANGUAGE
 from local_lens.models import DocumentResult
 from local_lens.preprocessing.image import PRESET_NONE
 from local_lens.services.ocr_service import OCRService
+
+
+def _resolve_benchmark_env() -> dict:
+    """Merges real process env vars with project-local `.env` (real env
+    wins -- see load_env's docstring). Used only by benchmark-deep's
+    LOCAL_LENS_BENCHMARK_* credential resolution; never logs or prints
+    anything from the result."""
+    return load_env()
+
 
 _FORMATTERS = {
     "text": lambda r: r.text,
@@ -176,7 +186,7 @@ def _cmd_benchmark_deep_preflight(args: argparse.Namespace) -> int:
     from local_lens.deep_analysis.runner import run_preflight
 
     round_name = args.round  # None | "free" | "paid"
-    report = run_preflight(round_name=round_name)
+    report = run_preflight(env=_resolve_benchmark_env(), round_name=round_name)
     print(f"Deep benchmark {report.benchmark_version} -- round: {report.round}\n")
     print(f"Fixtures: {report.fixture_count}\n")
 
@@ -227,7 +237,8 @@ def _cmd_benchmark_deep_run(args: argparse.Namespace) -> int:
 
     from local_lens.deep_analysis.runner import BudgetExceeded, NoExecutableFinalists, execute_benchmark, run_preflight
 
-    preflight = run_preflight(round_name=args.round)
+    benchmark_env = _resolve_benchmark_env()
+    preflight = run_preflight(env=benchmark_env, round_name=args.round)
     print(f"Estimated maximum: ${preflight.estimated_max_cost_usd:.4f}")
     print(f"Configured ceiling: ${args.max_cost_usd:.4f}\n")
 
@@ -241,6 +252,7 @@ def _cmd_benchmark_deep_run(args: argparse.Namespace) -> int:
         summary = execute_benchmark(
             max_cost_usd=args.max_cost_usd,
             output_dir=Path(args.output),
+            env=benchmark_env,
             confirm_remote=True,
             round_name=args.round,
             free_tier_only=args.free_tier_only,
