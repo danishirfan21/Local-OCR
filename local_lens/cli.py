@@ -106,6 +106,77 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_providers(_args: argparse.Namespace) -> int:
+    """Offline configuration validation only -- never pings an endpoint
+    (see local_lens/deep_analysis/config.py's validate_deep_provider_config)."""
+    from local_lens.deep_analysis.config import load_deep_provider_config, validate_deep_provider_config
+
+    for status in fast_backend_statuses():
+        mark = "available" if status.available else status.reason or "not installed"
+        print(f"Fast / {status.name}\n  {mark}\n")
+
+    config = load_deep_provider_config()
+    problems = validate_deep_provider_config()
+    print(f"Deep / {config.provider if config else '(none)'}")
+    if config is None:
+        print("  not configured")
+    elif problems:
+        print(f"  configured, but not valid: {'; '.join(problems)}")
+    else:
+        print(f"  configured ({config.base_url}, model={config.model}) -- not tested (no network call made)")
+    return 0
+
+
+def cmd_benchmark_deep(args: argparse.Namespace) -> int:
+    from local_lens.deep_analysis.benchmark import estimate_request_cost
+    from local_lens.deep_analysis.benchmark_cases import build_deep_benchmark_cases
+    from local_lens.deep_analysis.finalists import (
+        ESTIMATED_INPUT_TOKENS_PER_REQUEST,
+        ESTIMATED_OUTPUT_TOKENS_PER_REQUEST,
+        PROPOSED_FINALISTS,
+    )
+
+    if not args.dry_run:
+        print(
+            "error: real (non-dry-run) execution is not implemented in this build -- "
+            "it would make paid remote API calls, which requires your explicit approval "
+            "outside this CLI. Use --dry-run. See docs/REMOTE_BENCHMARK_PLAN.md.",
+            file=sys.stderr,
+        )
+        return 1
+
+    cases = build_deep_benchmark_cases()
+    print(f"Deep Analyze benchmark -- DRY RUN (zero network calls)\n")
+    print(f"Cases: {len(cases)}")
+    missing = [c for c in cases if not c.image_path.exists()]
+    for case in cases:
+        exists = "ok" if case.image_path.exists() else "MISSING"
+        gt = "text" if case.expected_text is not None else "table" if case.expected_table is not None else "none"
+        print(f"  [{exists:7}] {case.category:12} {case.id:22} ground_truth={gt}")
+    if missing:
+        print(f"\nerror: {len(missing)} fixture image(s) missing -- run benchmarks/corpus.py's ensure_corpus() first")
+        return 1
+
+    print(f"\nCandidates: {len(PROPOSED_FINALISTS)}")
+    total_requests = 0
+    total_max_cost = 0.0
+    for finalist in PROPOSED_FINALISTS:
+        n_requests = len(cases)
+        cost_per_request = estimate_request_cost(
+            finalist.pricing, ESTIMATED_INPUT_TOKENS_PER_REQUEST, ESTIMATED_OUTPUT_TOKENS_PER_REQUEST
+        )
+        subtotal = round(cost_per_request * n_requests, 4)
+        total_requests += n_requests
+        total_max_cost += subtotal
+        cost_note = "GPU-time billed, not per-token -- see docs" if finalist.pricing.input_per_million == 0 else f"~${subtotal:.4f} max"
+        print(f"  {finalist.label:38} {n_requests} requests, {cost_note}")
+
+    print(f"\nTotal requests if fully executed: {total_requests}")
+    print(f"Estimated maximum token-billed cost: ~${total_max_cost:.2f} (excludes GPU-time-billed candidates)")
+    print("\nNo network call was made. See docs/REMOTE_BENCHMARK_PLAN.md for the full proposal and approval checklist.")
+    return 0
+
+
 def cmd_doctor(_args: argparse.Namespace) -> int:
     print("Fast mode (local):")
     for status in fast_backend_statuses():
@@ -141,6 +212,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser("doctor", help="Report which backends are available/configured")
     doctor.set_defaults(func=cmd_doctor)
+
+    providers = subparsers.add_parser(
+        "providers", help="Validate Fast/Deep provider configuration (offline only, never pings an endpoint)"
+    )
+    providers.set_defaults(func=cmd_providers)
+
+    benchmark_deep = subparsers.add_parser(
+        "benchmark-deep", help="Deep Analyze provider bake-off (dry-run only in this build)"
+    )
+    benchmark_deep.add_argument(
+        "--dry-run", action="store_true", help="Required -- enumerate cases/candidates/cost, make zero network calls"
+    )
+    benchmark_deep.set_defaults(func=cmd_benchmark_deep)
 
     return parser
 

@@ -86,6 +86,14 @@ def test_build_deep_provider_constructs_paddle_vllm_without_network():
     assert isinstance(provider, PaddleVLLMProvider)
 
 
+def test_build_deep_provider_constructs_anthropic_without_network():
+    from local_lens.deep_analysis.anthropic_provider import AnthropicProvider
+
+    env = {"LOCAL_LENS_DEEP_PROVIDER": "anthropic", "LOCAL_LENS_DEEP_API_KEY": "k"}
+    provider = build_deep_provider(env=env)
+    assert isinstance(provider, AnthropicProvider)
+
+
 def test_status_not_configured_by_default():
     status = deep_backend_status()
     # No assumption about the *current* environment's env vars beyond: if

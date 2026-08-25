@@ -29,7 +29,11 @@ def test_fast_mode_ocr_makes_no_network_call():
 
 def test_importing_deep_analysis_modules_makes_no_network_call():
     import local_lens.backends  # noqa: F401
+    import local_lens.deep_analysis.anthropic_provider  # noqa: F401
+    import local_lens.deep_analysis.benchmark  # noqa: F401
+    import local_lens.deep_analysis.benchmark_cases  # noqa: F401
     import local_lens.deep_analysis.config  # noqa: F401
+    import local_lens.deep_analysis.finalists  # noqa: F401
     import local_lens.deep_analysis.openai_compatible_provider  # noqa: F401
     import local_lens.deep_analysis.paddle_vllm_provider  # noqa: F401
 

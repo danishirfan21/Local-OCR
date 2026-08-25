@@ -64,3 +64,44 @@ def test_doctor_reports_easyocr_available(capsys):
 def test_no_args_exits_nonzero():
     with pytest.raises(SystemExit):
         cli.main([])
+
+
+def test_providers_reports_unconfigured_deep_by_default(capsys, monkeypatch):
+    monkeypatch.delenv("LOCAL_LENS_DEEP_BASE_URL", raising=False)
+    monkeypatch.delenv("LOCAL_LENS_DEEP_PROVIDER", raising=False)
+    exit_code = cli.main(["providers"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Fast / easyocr" in out
+    assert "not configured" in out
+
+
+def test_providers_reports_configured_deep_without_network_call(capsys, monkeypatch):
+    monkeypatch.setenv("LOCAL_LENS_DEEP_BASE_URL", "https://example.com/v1")
+    monkeypatch.setenv("LOCAL_LENS_DEEP_API_KEY", "k")
+    exit_code = cli.main(["providers"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "not tested (no network call made)" in out
+
+
+def test_benchmark_deep_requires_dry_run_flag(capsys):
+    exit_code = cli.main(["benchmark-deep"])
+    assert exit_code == 1
+    assert "not implemented" in capsys.readouterr().err
+
+
+def test_benchmark_deep_dry_run_makes_no_network_call(capsys, monkeypatch):
+    import urllib.request
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("dry-run must not open a network connection")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+
+    exit_code = cli.main(["benchmark-deep", "--dry-run"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "DRY RUN" in out
+    assert "Total requests if fully executed:" in out
+    assert "No network call was made." in out

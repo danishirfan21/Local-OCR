@@ -153,8 +153,15 @@ network calls — enforced by `tests/test_no_silent_network.py`).
 in this environment (that requires the user to actually provision one —
 out of scope until explicitly approved); request/response handling is
 covered by mocked-transport tests instead
-(`tests/test_deep_analysis.py`). See `docs/V4_IMPLEMENTATION.md` for the
-provider comparison and recommended next step.
+(`tests/test_deep_analysis.py`, `tests/test_anthropic_provider.py`). See
+[docs/DEEP_PROVIDER_EVALUATION.md](docs/DEEP_PROVIDER_EVALUATION.md) for
+the researched provider comparison (OpenAI, Anthropic, Gemini, hosted-open
+VLMs, PaddleOCR-VL remote, specialist OCR APIs) and
+[docs/REMOTE_BENCHMARK_PLAN.md](docs/REMOTE_BENCHMARK_PLAN.md) for the
+proposed (not-yet-executed) 5-provider, 12-fixture bake-off — run
+`local-lens providers` (config validation only) or `local-lens
+benchmark-deep --dry-run` (enumerates the bake-off, zero network calls) to
+see it locally.
 
 ## Experimental (not in the production path)
 

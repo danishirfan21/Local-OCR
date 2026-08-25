@@ -1,26 +1,31 @@
-"""Generic Deep Analyze provider for OpenAI-compatible vision endpoints.
+"""Deep Analyze provider for Anthropic's Messages API.
 
-Targets the `/v1/chat/completions` HTTP contract (system+user messages,
-an `image_url` content block carrying a base64 data URL, a `choices[0].
-message.content` string reply) that vLLM's OpenAI-compatible server and
-most hosted VLM APIs implement. This is the base for both a self-hosted
-PaddleOCR-VL-on-vLLM server (see paddle_vllm_provider.py) and any other
-OpenAI-compatible host -- nothing here is Paddle-specific.
+Unlike Gemini (OpenAI-compatible beta endpoint), Fireworks, or a
+self-hosted vLLM server, Claude's Messages API is genuinely NOT
+OpenAI-compatible -- confirmed by research, not assumed:
 
-The request format was not guessed: it matches the publicly documented
-OpenAI Chat Completions vision request shape, which is what vLLM's
-`--served-model-name` OpenAI-compatible server implements. It has not been
-exercised against a live server in this session (that would require a
-running remote endpoint, which is out of scope until the user provisions
-one) -- request/response handling is covered by mocked-transport unit
-tests instead (tests/test_deep_analysis.py).
+  OpenAI:    {"type": "image_url", "image_url": {"url": "data:...;base64,..."}}
+  Anthropic: {"type": "image", "source": {"type": "base64",
+                                           "media_type": "image/png",
+                                           "data": "<base64>"}}
+
+different field names, different nesting, and the endpoint/auth scheme
+differ too (`x-api-key` + `anthropic-version` headers vs. `Authorization:
+Bearer`, `/v1/messages` vs. `/v1/chat/completions`). This is exactly the
+"protocol differences require it" case the architecture calls for a
+dedicated adapter, rather than trying to force it through
+OpenAICompatibleVisionProvider (see local_lens/deep_analysis/base.py's
+module docstring).
+
+Reuses the same structured prompt (prompts.py) and reply parser
+(response_parsing.py) as the OpenAI-compatible provider so bake-off
+comparisons stay apples-to-apples.
 """
 
 from __future__ import annotations
 
 import base64
 import io
-import json
 import time
 
 from PIL import Image
@@ -44,15 +49,19 @@ from local_lens.deep_analysis.prompts import DEEP_ANALYSIS_PROMPT
 from local_lens.deep_analysis.response_parsing import parse_structured_reply
 from local_lens.models import DocumentResult
 
+ANTHROPIC_VERSION = "2023-06-01"
+DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 
-class OpenAICompatibleVisionProvider:
-    name = "openai_compatible"
+
+class AnthropicProvider:
+    name = "anthropic"
 
     def __init__(
         self,
-        base_url: str,
         api_key: str | None,
-        model: str,
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = DEFAULT_MODEL,
         timeout: float = 60.0,
         max_retries: int = 1,
         transport: Transport = urllib_transport,
@@ -65,34 +74,39 @@ class OpenAICompatibleVisionProvider:
         self._transport = transport
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "anthropic-version": ANTHROPIC_VERSION}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["x-api-key"] = self.api_key
         return headers
 
     def _encode_image(self, image: Image.Image) -> str:
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="PNG")
-        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
+        return base64.b64encode(buf.getvalue()).decode("ascii")
 
     def extract(self, image: Image.Image, langs: list[str]) -> DocumentResult:
         payload = {
             "model": self.model,
+            "max_tokens": 4096,
             "messages": [
-                {"role": "system", "content": "You are a precise document OCR and layout extraction assistant."},
                 {
                     "role": "user",
                     "content": [
                         {"type": "text", "text": DEEP_ANALYSIS_PROMPT},
-                        {"type": "image_url", "image_url": {"url": self._encode_image(image)}},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": self._encode_image(image),
+                            },
+                        },
                     ],
-                },
+                }
             ],
-            "max_tokens": 4096,
         }
 
-        url = f"{self.base_url}/chat/completions"
+        url = f"{self.base_url}/messages"
         start = time.monotonic()
         try:
             response = post_json_with_retry(
@@ -118,24 +132,21 @@ class OpenAICompatibleVisionProvider:
 
         try:
             body = response.json()
-            content = body["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            content_blocks = body["content"]
+            text_content = "".join(
+                block.get("text", "") for block in content_blocks if block.get("type") == "text"
+            )
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise DeepAnalysisBadResponse(f"Could not parse response from {self.base_url}: {exc}") from exc
 
-        return self._to_document_result(content, langs, latency_ms, response.status)
-
-    def _to_document_result(
-        self, content: str, langs: list[str], latency_ms: float, http_status: int
-    ) -> DocumentResult:
-        parsed = parse_structured_reply(content)
-
+        parsed = parse_structured_reply(text_content)
         metadata = {
             "provider": self.name,
             "remote": True,
             "model": self.model,
             "base_url": self.base_url,
             "latency_ms": round(latency_ms, 1),
-            "http_status": http_status,
+            "http_status": response.status,
             "structured_response": parsed.structured,
         }
         if parsed.content_type:
