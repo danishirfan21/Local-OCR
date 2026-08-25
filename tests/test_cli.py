@@ -53,10 +53,16 @@ def test_extract_missing_file_returns_error(capsys):
     assert "no such file" in capsys.readouterr().err
 
 
+def test_extract_deep_mode_requires_allow_remote(fake_image, capsys):
+    exit_code = cli.main(["extract", str(fake_image), "--mode", "deep"])
+    assert exit_code == 1
+    assert "--allow-remote" in capsys.readouterr().err
+
+
 def test_extract_deep_mode_unconfigured_raises_clear_error(fake_image, monkeypatch):
-    monkeypatch.delenv("LOCAL_LENS_DEEP_BASE_URL", raising=False)
-    with pytest.raises(SystemExit, match="not configured"):
-        cli.main(["extract", str(fake_image), "--mode", "deep"])
+    monkeypatch.delenv("LOCAL_LENS_GEMINI_API_KEY", raising=False)
+    with pytest.raises(SystemExit, match="requires a Gemini API key"):
+        cli.main(["extract", str(fake_image), "--mode", "deep", "--allow-remote"])
 
 
 def test_extract_json_format(fake_image, capsys):
@@ -64,6 +70,45 @@ def test_extract_json_format(fake_image, capsys):
     assert exit_code == 0
     out = capsys.readouterr().out
     assert '"engine"' in out
+
+
+def test_extract_deep_mode_with_allow_remote_and_configured_key_calls_provider(fake_image, monkeypatch):
+    from local_lens.models import DocumentResult, TextBlock
+
+    monkeypatch.setenv("LOCAL_LENS_GEMINI_API_KEY", "fake-key")
+
+    calls = []
+
+    class _FakeProvider:
+        name = "gemini_deep"
+
+        def extract(self, image, langs):
+            calls.append(1)
+            return DocumentResult(
+                text="", blocks=[TextBlock(text="hi", confidence=None, bbox=None)],
+                language="en", engine="gemini_deep", metadata={},
+            )
+
+    monkeypatch.setattr(
+        "local_lens.deep_analysis.production.build_production_gemini_provider", lambda env=None: _FakeProvider()
+    )
+
+    exit_code = cli.main(["extract", str(fake_image), "--mode", "deep", "--allow-remote"])
+    assert exit_code == 0
+    assert calls == [1]
+
+
+def test_extract_deep_mode_without_allow_remote_makes_no_network_call(fake_image, monkeypatch):
+    import urllib.request
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("must not open a network connection without --allow-remote")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _forbidden)
+    monkeypatch.setenv("LOCAL_LENS_GEMINI_API_KEY", "fake-key")
+
+    exit_code = cli.main(["extract", str(fake_image), "--mode", "deep"])
+    assert exit_code == 1
 
 
 def test_doctor_reports_easyocr_available(capsys):
@@ -80,22 +125,35 @@ def test_no_args_exits_nonzero():
 
 
 def test_providers_reports_unconfigured_deep_by_default(capsys, monkeypatch):
-    monkeypatch.delenv("LOCAL_LENS_DEEP_BASE_URL", raising=False)
-    monkeypatch.delenv("LOCAL_LENS_DEEP_PROVIDER", raising=False)
+    monkeypatch.delenv("LOCAL_LENS_GEMINI_API_KEY", raising=False)
     exit_code = cli.main(["providers"])
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Fast / easyocr" in out
+    assert "Fast (local):" in out
+    assert "easyocr" in out
+    assert "Deep (production, BYOK):" in out
     assert "not configured" in out
+    assert "Benchmark (developer" in out
 
 
-def test_providers_reports_configured_deep_without_network_call(capsys, monkeypatch):
-    monkeypatch.setenv("LOCAL_LENS_DEEP_BASE_URL", "https://example.com/v1")
-    monkeypatch.setenv("LOCAL_LENS_DEEP_API_KEY", "k")
+def test_providers_reports_configured_production_gemini_without_network_call(capsys, monkeypatch):
+    monkeypatch.setenv("LOCAL_LENS_GEMINI_API_KEY", "k")
     exit_code = cli.main(["providers"])
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "not tested (no network call made)" in out
+    assert "configured" in out
+    assert "gemini-3.1-flash-lite" in out
+
+
+def test_providers_separates_production_from_benchmark_gemini_keys(capsys, monkeypatch):
+    # Setting ONLY the benchmark key must not make production Deep appear configured.
+    monkeypatch.delenv("LOCAL_LENS_GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("LOCAL_LENS_BENCHMARK_GEMINI_API_KEY", "benchmark-only-key")
+    exit_code = cli.main(["providers"])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    deep_section = out.split("Deep (production, BYOK):")[1].split("Benchmark")[0]
+    assert "not configured" in deep_section
 
 
 def test_benchmark_deep_requires_a_mode_flag(capsys):

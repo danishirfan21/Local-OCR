@@ -4,6 +4,13 @@ This module owns the UI only: layout, session state, and Streamlit-specific
 caching. All OCR/document-understanding logic lives in `local_lens/`, which
 has no Streamlit dependency and can be reused by a future CLI/API/MCP
 server or desktop shell.
+
+Deep Analyze is production-Gemini-only as of V5 (see docs/V5_GEMINI_DEEP.md)
+and is never triggered automatically: an image appearing (upload/paste/
+clipboard) only ever runs Fast (local, EasyOCR/PaddleOCR). Deep requires an
+explicit button click, shows a privacy disclosure first, and a Deep failure
+never clears or gets confused with the Fast result -- see the "Deep Analyze"
+section below.
 """
 
 from __future__ import annotations
@@ -15,11 +22,21 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageGrab
 from streamlit_paste_button import paste_image_button as pbutton
 
-from local_lens.backends import deep_backend_status, fast_backend_statuses, table_backend_status
-from local_lens.deep_analysis.base import DeepAnalysisError
-from local_lens.deep_analysis.config import build_deep_provider
+from local_lens.backends import fast_backend_statuses, table_backend_status
+from local_lens.deep_analysis.base import (
+    DeepAnalysisAuthError,
+    DeepAnalysisError,
+    DeepAnalysisRateLimited,
+    DeepAnalysisTimeout,
+)
+from local_lens.deep_analysis.production import (
+    PRODUCTION_GEMINI_MODEL,
+    build_production_gemini_provider,
+    production_gemini_status,
+)
 from local_lens.engines.easyocr_engine import EasyOCREngine
 from local_lens.engines.paddleocr_engine import PADDLEOCR_AVAILABLE, PaddleOCREngine
+from local_lens.env_file import load_env
 from local_lens.export import export_table_csv, export_table_markdown, to_json, to_markdown, to_txt
 from local_lens.languages import DEFAULT_LANGUAGE, available_languages
 from local_lens.models import DocumentResult
@@ -64,6 +81,13 @@ st.markdown(
 )
 
 
+def _resolve_env() -> dict:
+    """Real process env, with project-local .env filling in anything not
+    already set (real env always wins). Cheap enough to call on every
+    Streamlit rerun -- a small file read, no caching needed."""
+    return load_env()
+
+
 # -----------------------------------------------------------------------------
 # Cached construction (model load happens once per config, not per rerun)
 # -----------------------------------------------------------------------------
@@ -76,14 +100,6 @@ def _load_table_extractor():
 def _load_service(engine_key: str) -> OCRService:
     _, engine_cls, _ = ENGINES[engine_key]
     return OCRService(engine_cls(), table_extractor=_load_table_extractor())
-
-
-@st.cache_resource(show_spinner=False)
-def _load_deep_service() -> OCRService | None:
-    provider = build_deep_provider()
-    if provider is None:
-        return None
-    return OCRService(provider)
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -104,6 +120,30 @@ def _resolve_engine(engine_choice: str, image_bytes: bytes):
     return decision.engine, reason
 
 
+def _run_deep_now(image_bytes: bytes, langs: list[str]) -> DocumentResult:
+    """No caching -- every call is a deliberate, explicit remote request
+    (the whole point of Deep Analyze's consent model), never a silent
+    cache-driven re-request either."""
+    provider = build_production_gemini_provider(env=_resolve_env())
+    service = OCRService(provider)
+    return service.process(image_bytes, langs, PRESET_NONE)
+
+
+def _deep_error_message(exc: Exception) -> str:
+    """Maps every documented Deep Analyze failure mode to a specific,
+    honest message -- never "falling back to Fast," since that would
+    misrepresent a failed Deep request as a successful one."""
+    if isinstance(exc, DeepAnalysisAuthError):
+        return "Gemini rejected the configured API key."
+    if isinstance(exc, DeepAnalysisRateLimited):
+        return "Gemini rate limit reached. Fast mode is still available."
+    if isinstance(exc, DeepAnalysisTimeout):
+        return "Deep Analyze timed out. Your local Fast result is unaffected."
+    if isinstance(exc, DeepAnalysisError):
+        return f"Deep Analyze failed: {exc}"
+    return f"Deep Analyze failed unexpectedly: {exc}"
+
+
 def _render_overlay(image: Image.Image, result: DocumentResult) -> Image.Image:
     annotated = image.copy()
     draw = ImageDraw.Draw(annotated)
@@ -120,6 +160,154 @@ def _render_overlay(image: Image.Image, result: DocumentResult) -> Image.Image:
     return annotated
 
 
+def _render_result_panel(
+    result: DocumentResult,
+    *,
+    mode_label: str,
+    engine_label: str,
+    image_bytes: bytes,
+    preprocessing: str,
+    show_regions: bool,
+    key_prefix: str,
+) -> None:
+    """Shared rendering for both Fast and Deep results: metrics, advanced
+    details, image/text, and content-aware exports. Only sections with
+    actual content are shown (no empty tabs), per the taxonomy:
+    Text / Tables / Code / Metadata / Raw structured result (advanced)."""
+    content_type = result.metadata.get("content_type", "unknown")
+    avg_conf = result.average_confidence
+    is_urdu_primary = "ur" in result.detected_languages
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Words/lines detected", result.metadata.get("block_count", 0))
+    m2.metric("Average confidence", f"{avg_conf * 100:.1f}%" if avg_conf else "N/A")
+    label = "Table" if content_type == "table" else content_type.capitalize()
+    if is_urdu_primary:
+        label += " (Urdu)"
+    m3.metric("Detected content", label)
+    m4.metric("Total time", f"{result.metadata.get('total_ms', 0):.0f} ms")
+
+    st.caption(f"Detected: {label} · Engine: {engine_label} · Mode: {mode_label}")
+
+    with st.expander("⚙️ Advanced details"):
+        st.write(f"**Engine used:** {engine_label}")
+        st.write(f"**Mode:** {mode_label}")
+        if result.metadata.get("remote"):
+            st.write(f"**Provider:** {result.metadata.get('provider', 'unknown')}")
+            st.write(f"**Model:** {result.metadata.get('model', 'unknown')}")
+            st.write(f"**Latency:** {result.metadata.get('latency_ms', '?')} ms")
+            usage = result.metadata.get("usage")
+            if usage:
+                st.write(f"**Usage:** {usage}")
+        st.write(f"**Detected scripts:** {result.detected_scripts or 'none'}")
+        st.write(f"**Detected languages:** {result.detected_languages or 'unresolved'}")
+        st.write("**Stage timings (ms):**")
+        st.json(result.metadata.get("timings", {}))
+        if result.document_blocks:
+            st.write("**Raw structured result (advanced):**")
+            st.json([
+                {"type": b.type, "text": b.text, "metadata": b.metadata} for b in result.document_blocks
+            ])
+
+    img_col, text_col = st.columns([1, 1])
+
+    with img_col:
+        st.markdown("#### 🖼 Image")
+        display_image = apply_preset(Image.open(io.BytesIO(image_bytes)), preprocessing)
+        if show_regions:
+            display_image = _render_overlay(display_image, result)
+        st.image(display_image, use_container_width=True)
+
+    with text_col:
+        if not result.text.strip():
+            st.info(
+                "No text detected.\n\n"
+                "Try:\n- A different preprocessing option\n"
+                "- A clearer screenshot\n- Zooming into the area with text"
+            )
+            return
+
+        if result.tables:
+            st.markdown(f"#### 📊 Table{'s' if len(result.tables) > 1 else ''}")
+            if len(result.tables) > 1:
+                idx = st.selectbox(
+                    "Table", options=list(range(len(result.tables))),
+                    format_func=lambda i: f"Table {i + 1}", key=f"{key_prefix}_table_select",
+                )
+            else:
+                idx = 0
+            table = result.tables[idx]
+            st.dataframe(table.rows, use_container_width=True)
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                st.download_button(
+                    "📥 Export CSV", data=export_table_csv(table),
+                    file_name="table.csv", mime="text/csv", key=f"{key_prefix}_t{idx}_csv",
+                )
+            with d2:
+                st.download_button(
+                    "📥 Export Markdown", data=export_table_markdown(table),
+                    file_name="table.md", mime="text/markdown", key=f"{key_prefix}_t{idx}_md",
+                )
+            with d3:
+                st.download_button(
+                    "📥 Export JSON", data=to_json(result),
+                    file_name="table.json", mime="application/json", key=f"{key_prefix}_t{idx}_json",
+                )
+            with st.expander("📝 Plain text"):
+                st.text_area("Extracted content", result.text, height=160, label_visibility="collapsed", key=f"{key_prefix}_text_under_table")
+            return
+
+        if content_type == "table":
+            status = result.metadata.get("table_extraction_status")
+            if status and status != "ok":
+                st.caption(f"Table detected but extraction {status.replace('_', ' ')} -- showing plain text instead.")
+
+        st.markdown("#### 📝 Extracted text")
+
+        if content_type == "code":
+            st.code(result.text, language=None)
+            d1, d2 = st.columns(2)
+            with d1:
+                st.download_button(
+                    "📥 Download Code (TXT)", data=to_txt(result),
+                    file_name="extracted_code.txt", mime="text/plain", key=f"{key_prefix}_code_txt",
+                )
+            with d2:
+                st.download_button(
+                    "📥 Download JSON", data=to_json(result),
+                    file_name="extracted_code.json", mime="application/json", key=f"{key_prefix}_code_json",
+                )
+            return
+
+        text_area_class = "ll-rtl" if is_urdu_primary else ""
+        if text_area_class:
+            st.markdown(f'<div class="{text_area_class}">', unsafe_allow_html=True)
+        st.text_area(
+            "Extracted content", result.text, height=320, label_visibility="collapsed", key=f"{key_prefix}_text",
+        )
+        if text_area_class:
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("##### Export")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.download_button(
+                "📥 Download TXT", data=to_txt(result),
+                file_name="extracted_text.txt", mime="text/plain", key=f"{key_prefix}_txt",
+            )
+        with d2:
+            st.download_button(
+                "📥 Download Markdown", data=to_markdown(result),
+                file_name="extracted_text.md", mime="text/markdown", key=f"{key_prefix}_md2",
+            )
+        with d3:
+            st.download_button(
+                "📥 Download JSON", data=to_json(result),
+                file_name="extracted_text.json", mime="application/json", key=f"{key_prefix}_json2",
+            )
+
+
 # -----------------------------------------------------------------------------
 # Session state
 # -----------------------------------------------------------------------------
@@ -129,6 +317,9 @@ _DEFAULTS = {
     "clipboard_bytes": None,
     "last_clipboard_hash": None,
     "auto_detect": False,
+    "deep_consent_given": False,
+    "deep_results": {},  # image_hash -> DocumentResult
+    "deep_errors": {},  # image_hash -> str
 }
 for key, default in _DEFAULTS.items():
     st.session_state.setdefault(key, default)
@@ -139,39 +330,27 @@ for key, default in _DEFAULTS.items():
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🔍 Local Lens")
-    st.caption("Private screenshot and document intelligence.")
+    st.caption("Fast when local OCR is enough. Deep when structure matters.")
     st.markdown("---")
 
-    st.markdown("#### Processing Mode")
-    deep_status = deep_backend_status()
+    st.markdown("#### Processing")
+    deep_status = production_gemini_status(_resolve_env())
     mode_options = ["fast", "deep"]
 
     def _mode_label(k: str) -> str:
         if k == "fast":
-            return "Fast -- runs entirely on this device"
-        return "Deep Analyze -- uses your configured remote provider" + (
+            return "● Fast -- Local OCR, runs entirely on this device"
+        return "○ Deep Analyze -- Gemini, better for tables/documents/complex layouts, sends image to Google" + (
             "" if deep_status.available else " (not configured)"
         )
 
     processing_mode = st.radio(
-        "Processing Mode",
+        "Processing",
         options=mode_options,
         format_func=_mode_label,
         index=0,
         label_visibility="collapsed",
     )
-    if processing_mode == "deep":
-        if deep_status.available:
-            st.info(
-                f"☁ Deep Analyze will send the selected image to **{deep_status.reason}**. "
-                "Nothing is sent until you upload/paste an image with this mode selected."
-            )
-        else:
-            st.warning(
-                "Deep Analyze is not configured. Set `LOCAL_LENS_DEEP_BASE_URL` "
-                "(bring your own endpoint/key) to enable it -- see README.md. "
-                "Falling back to Fast mode."
-            )
 
     with st.expander("Model availability"):
         for status in fast_backend_statuses():
@@ -181,7 +360,7 @@ with st.sidebar:
         mark = "✓" if t_status.available else "○"
         st.caption(f"{mark} table extraction -- {'available' if t_status.available else t_status.reason}")
         mark = "✓" if deep_status.available else "○"
-        st.caption(f"{mark} Deep Analyze (remote) -- {'configured: ' + deep_status.reason if deep_status.available else deep_status.reason}")
+        st.caption(f"{mark} Deep Analyze (Gemini) -- {deep_status.reason}")
 
     st.markdown("#### OCR Engine")
     st.caption("Applies to Fast mode only.")
@@ -266,7 +445,7 @@ with st.sidebar:
 st.markdown("<h1 style='text-align:center;'>🔍 Local Lens</h1>", unsafe_allow_html=True)
 st.markdown(
     "<p style='text-align:center; color:#6b7280;'>Capture → Understand → Act. "
-    "Private, local screenshot and document intelligence.</p>",
+    "Fast mode stays on-device. Deep mode is explicitly cloud-assisted.</p>",
     unsafe_allow_html=True,
 )
 st.markdown("")
@@ -304,152 +483,98 @@ image_bytes = (
 # Processing + results
 # -----------------------------------------------------------------------------
 if image_bytes is not None:
-    result = None
-    mode_used = "fast"
-    engine_label_display = None
-    routing_reason = None
+    image_hash = hash_image_bytes(image_bytes)
 
-    if processing_mode == "deep" and deep_status.available:
-        deep_service = _load_deep_service()
+    # Fast always runs automatically -- local, fast, private, and its
+    # result is what a Deep failure falls back to *displaying* (never
+    # silently substitutes for a Deep result -- see _deep_error_message).
+    fast_result = None
+    engine_key, routing_reason = _resolve_engine(engine_choice, image_bytes)
+    if not ENGINES.get(engine_key, (None, None, False))[2]:
+        st.error(f"{engine_key} is not installed -- pick another engine.")
+    else:
         try:
-            with st.spinner(f"☁ Sending image to {deep_status.reason}..."):
-                result = deep_service.process(image_bytes, selected_langs, PRESET_NONE)
-            mode_used = "deep"
-            engine_label_display = deep_service.engine.name
-        except DeepAnalysisError as exc:
-            st.warning(f"Deep analysis failed: {exc}. Falling back to Fast OCR.")
-        except Exception as exc:  # provider bugs must not crash the whole app
-            st.warning(f"Deep analysis failed: {exc}. Falling back to Fast OCR.")
+            with st.spinner(f"🔍 Reading text from image ({ENGINES[engine_key][0]})..."):
+                fast_result = _run_ocr(image_bytes, engine_key, tuple(selected_langs), preprocessing)
+        except Exception as exc:
+            st.error(f"OCR failed: {exc}")
 
-    if result is None:
-        engine_key, routing_reason = _resolve_engine(engine_choice, image_bytes)
+    fast_content_type = fast_result.metadata.get("content_type") if fast_result else None
 
-        if not ENGINES.get(engine_key, (None, None, False))[2]:
-            st.error(f"{engine_key} is not installed -- pick another engine.")
-        else:
-            try:
-                with st.spinner(f"🔍 Reading text from image ({ENGINES[engine_key][0]})..."):
-                    result = _run_ocr(image_bytes, engine_key, tuple(selected_langs), preprocessing)
-                engine_label_display = ENGINES[engine_key][0]
-            except Exception as exc:
-                st.error(f"OCR failed: {exc}")
-                result = None
-
-    if result is not None:
+    if processing_mode == "fast":
         st.markdown("---")
+        if fast_content_type == "table":
+            st.info(
+                "📊 This looks like a table. Deep Analyze may preserve structure better "
+                "(select **Deep Analyze** in the sidebar to try it -- nothing is sent automatically)."
+            )
+        if fast_result is not None:
+            _render_result_panel(
+                fast_result, mode_label="Fast (local)", engine_label=ENGINES[engine_key][0],
+                image_bytes=image_bytes, preprocessing=preprocessing, show_regions=show_regions,
+                key_prefix="fast",
+            )
+            with st.expander("⚙️ Auto routing"):
+                st.write(routing_reason or "not used (manual engine selection)")
 
-        content_type = result.metadata.get("content_type", "unknown")
-        avg_conf = result.average_confidence
-        is_urdu_primary = "ur" in result.detected_languages
+    else:  # processing_mode == "deep"
+        st.markdown("---")
+        st.markdown("### ☁ Deep Analyze")
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Words/lines detected", result.metadata.get("block_count", 0))
-        m2.metric("Average confidence", f"{avg_conf * 100:.1f}%" if avg_conf else "N/A")
-        label = "Table" if content_type == "table" else content_type.capitalize()
-        if is_urdu_primary:
-            label += " (Urdu)"
-        m3.metric("Detected content", label)
-        m4.metric("Total time", f"{result.metadata.get('total_ms', 0):.0f} ms")
-
-        mode_label = "Deep Analyze (remote)" if mode_used == "deep" else "Fast (local)"
-        st.caption(f"Detected: {label} · Engine: {engine_label_display} · Mode: {mode_label}")
-
-        with st.expander("⚙️ Advanced details"):
-            st.write(f"**Engine used:** {engine_label_display}")
-            st.write(f"**Mode:** {mode_label}")
-            if mode_used == "deep":
-                st.write(f"**Provider:** {result.metadata.get('provider', 'unknown')} @ {result.metadata.get('base_url', 'unknown')}")
-            if routing_reason:
-                st.write(f"**Auto routing:** {routing_reason}")
-            elif mode_used == "fast":
-                st.write("**Auto routing:** not used (manual engine selection)")
-            st.write(f"**Detected scripts:** {result.detected_scripts or 'none'}")
-            st.write(f"**Detected languages:** {result.detected_languages or 'unresolved'}")
-            st.write("**Stage timings (ms):**")
-            st.json(result.metadata.get("timings", {}))
-
-        img_col, text_col = st.columns([1, 1])
-
-        with img_col:
-            st.markdown("#### 🖼 Image")
-            display_image = apply_preset(Image.open(io.BytesIO(image_bytes)), preprocessing)
-            if show_regions:
-                display_image = _render_overlay(display_image, result)
-            st.image(display_image, use_container_width=True)
-
-        with text_col:
-            st.markdown("#### 📝 Extracted text")
-            if result.text.strip():
-                text_area_class = "ll-rtl" if is_urdu_primary else ""
-                if text_area_class:
-                    st.markdown(f'<div class="{text_area_class}">', unsafe_allow_html=True)
-                st.text_area(
-                    "Extracted content",
-                    result.text,
-                    height=320,
-                    label_visibility="collapsed",
-                )
-                if text_area_class:
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                # Contextual export actions based on detected content type.
-                st.markdown("##### Export")
-                if content_type == "code":
-                    d1, d2 = st.columns(2)
-                    with d1:
-                        st.download_button(
-                            "📥 Download Code (TXT)", data=to_txt(result),
-                            file_name="extracted_code.txt", mime="text/plain",
-                        )
-                    with d2:
-                        st.download_button(
-                            "📥 Download JSON", data=to_json(result),
-                            file_name="extracted_code.json", mime="application/json",
-                        )
-                elif content_type == "table" and result.tables:
-                    table = result.tables[0]
-                    st.dataframe(table.rows, use_container_width=True)
-                    d1, d2, d3 = st.columns(3)
-                    with d1:
-                        st.download_button(
-                            "📥 Export CSV", data=export_table_csv(table),
-                            file_name="table.csv", mime="text/csv",
-                        )
-                    with d2:
-                        st.download_button(
-                            "📥 Export Markdown", data=export_table_markdown(table),
-                            file_name="table.md", mime="text/markdown",
-                        )
-                    with d3:
-                        st.download_button(
-                            "📥 Export JSON", data=to_json(result),
-                            file_name="table.json", mime="application/json",
-                        )
-                else:
-                    status = result.metadata.get("table_extraction_status")
-                    if content_type == "table" and status and status != "ok":
-                        st.caption(f"Table detected but extraction {status.replace('_', ' ')} -- showing plain text instead.")
-                    d1, d2, d3 = st.columns(3)
-                    with d1:
-                        st.download_button(
-                            "📥 Download TXT", data=to_txt(result),
-                            file_name="extracted_text.txt", mime="text/plain",
-                        )
-                    with d2:
-                        st.download_button(
-                            "📥 Download Markdown", data=to_markdown(result),
-                            file_name="extracted_text.md", mime="text/markdown",
-                        )
-                    with d3:
-                        st.download_button(
-                            "📥 Download JSON", data=to_json(result),
-                            file_name="extracted_text.json", mime="application/json",
-                        )
+        if not deep_status.available:
+            st.warning(
+                "Deep Analyze requires a Gemini API key. Set `LOCAL_LENS_GEMINI_API_KEY` "
+                "(directly or in a project-local `.env`) to enable it -- see README.md 'Deep Analyze'."
+            )
+        else:
+            st.info(
+                "**Deep Analyze sends this image to Google's Gemini API for processing.**\n\n"
+                "Google's free-tier API may use submitted content to improve products and may "
+                "involve human review. This is different from Fast mode, which never leaves this device."
+            )
+            gemini_tier = _resolve_env().get("LOCAL_LENS_GEMINI_TIER", "").strip().lower()
+            if gemini_tier == "paid":
+                st.caption("Configured Gemini account mode: **paid API** -- not used for training, per Google's terms.")
+            elif gemini_tier == "free":
+                st.caption("Configured Gemini account mode: **free tier** -- see the disclosure above.")
             else:
-                st.info(
-                    "No text detected.\n\n"
-                    "Try:\n- A different preprocessing option\n"
-                    "- A clearer screenshot\n- Zooming into the area with text"
+                st.caption(
+                    "Gemini account mode not set (`LOCAL_LENS_GEMINI_TIER`) -- treat privacy conservatively "
+                    "and assume the free-tier terms above apply unless you know otherwise."
+                )
+
+            button_label = (
+                "☁ Analyze with Gemini" if st.session_state.deep_consent_given
+                else "☁ This image will be sent to Gemini -- Analyze remotely"
+            )
+            if st.button(button_label, key="deep_analyze_button"):
+                st.session_state.deep_consent_given = True
+                try:
+                    with st.spinner(f"☁ Sending image to Gemini ({PRODUCTION_GEMINI_MODEL})..."):
+                        deep_result = _run_deep_now(image_bytes, selected_langs)
+                    st.session_state.deep_results[image_hash] = deep_result
+                    st.session_state.deep_errors.pop(image_hash, None)
+                except Exception as exc:
+                    st.session_state.deep_errors[image_hash] = _deep_error_message(exc)
+                    st.session_state.deep_results.pop(image_hash, None)
+                st.rerun()
+
+            if image_hash in st.session_state.deep_errors:
+                st.error(st.session_state.deep_errors[image_hash])
+
+            if image_hash in st.session_state.deep_results:
+                _render_result_panel(
+                    st.session_state.deep_results[image_hash], mode_label="Deep Analyze (remote)",
+                    engine_label="Gemini", image_bytes=image_bytes, preprocessing=preprocessing,
+                    show_regions=show_regions, key_prefix="deep",
+                )
+
+        if fast_result is not None:
+            with st.expander("📝 Fast result (local, already computed)"):
+                _render_result_panel(
+                    fast_result, mode_label="Fast (local)", engine_label=ENGINES[engine_key][0],
+                    image_bytes=image_bytes, preprocessing=preprocessing, show_regions=show_regions,
+                    key_prefix="fast_under_deep",
                 )
 else:
     st.info("Upload, paste, or copy a screenshot to get started.")

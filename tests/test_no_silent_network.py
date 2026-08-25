@@ -39,6 +39,7 @@ def test_importing_deep_analysis_modules_makes_no_network_call():
     import local_lens.deep_analysis.manifest  # noqa: F401
     import local_lens.deep_analysis.openai_compatible_provider  # noqa: F401
     import local_lens.deep_analysis.paddle_vllm_provider  # noqa: F401
+    import local_lens.deep_analysis.production  # noqa: F401
     import local_lens.deep_analysis.runner  # noqa: F401
     import local_lens.deep_analysis.sanitize  # noqa: F401
     import local_lens.env_file  # noqa: F401

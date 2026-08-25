@@ -47,6 +47,7 @@ jobs:
         env:
           # Explicitly empty: CI must prove the preflight/dry-run/providers
           # commands work correctly with zero provider credentials and make
-          # zero network calls -- no LOCAL_LENS_BENCHMARK_*/LOCAL_LENS_DEEP_*
-          # secret is ever set in this workflow.
+          # zero network calls -- no LOCAL_LENS_BENCHMARK_*/LOCAL_LENS_DEEP_*/
+          # LOCAL_LENS_GEMINI_* secret is ever set in this workflow.
           LOCAL_LENS_DEEP_BASE_URL: ""
+          LOCAL_LENS_GEMINI_API_KEY: ""

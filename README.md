@@ -1,9 +1,8 @@
 # 🔍 Local Lens
 
-**Private AI for everything on your screen.**
+**A local-first screenshot and document intelligence tool.**
 
-Local Lens is a local-first screenshot and document intelligence tool,
-moving from "OCR that dumps text" toward:
+Local Lens moves from "OCR that dumps text" toward:
 
 **Capture → Understand → Act**
 
@@ -11,22 +10,37 @@ moving from "OCR that dumps text" toward:
 > table, Urdu, ...) and how best to read it → you get the right export/action
 > for that content, with the reasoning visible, not hidden.
 
+**Fast when local OCR is enough. Deep when structure matters.** Fast mode
+stays on-device; Deep mode is explicitly cloud-assisted — see below. Local
+Lens does not claim to be "fully private AI" now that Deep Analyze exists;
+it claims exactly what's true for each mode, stated plainly.
+
 The GitHub repo is still `Local-OCR`; the app itself is **Local Lens**.
 
-## Two modes: Fast (local) and Deep Analyze (remote, opt-in)
+## Two modes: Fast (local) and Deep Analyze (Gemini, explicit)
 
 - **Fast** — EasyOCR (optionally PaddleOCR), runs entirely on this device,
-  no network call, on by default.
-- **Deep Analyze** — sends the selected image to a remote vision-language
-  model you configure yourself (bring-your-own-endpoint/key). Never
-  auto-triggered; only runs when you explicitly select it. If nothing is
-  configured it shows **"Deep Analyze is not configured"** and Fast mode is
-  unaffected. See [Deep Analyze](#deep-analyze-remote-byok) below.
+  no network call, on by default. Already excellent for clean text, simple
+  screenshots, and basic OCR.
+- **Deep Analyze** — sends the selected image to Google's Gemini API
+  (`gemini-3.1-flash-lite`, frozen and BYOK — see
+  [Deep Analyze](#deep-analyze-gemini-byok) below), for cases where it
+  measurably helps: complex layouts, tables, and document structure. Never
+  auto-triggered — requires an explicit button click, and shows a privacy
+  disclosure first. If nothing is configured it shows **"Deep Analyze
+  requires a Gemini API key"** and Fast mode is unaffected.
+
+This choice is evidence-based, not a guess: see
+[docs/V5_GEMINI_DEEP.md](docs/V5_GEMINI_DEEP.md) for the benchmark data
+behind it (`docs/DEEP_PROVIDER_RESULTS.md`) and why Gemini specifically was
+chosen as the initial production backend.
 
 Local Lens does not require, install, or bundle PaddlePaddle/PaddleOCR-VL by
-default. The old local-PaddleOCR-VL path still exists
-(`local_lens/engines/paddleocr_vl_engine.py`) as an explicitly optional,
-resource-intensive legacy backend — see `requirements-paddle.txt`.
+default, and self-hosting PaddleOCR-VL has been shelved for now based on
+that benchmark data (see `docs/V5_GEMINI_DEEP.md`). The old local-PaddleOCR-VL
+path still exists (`local_lens/engines/paddleocr_vl_engine.py`) as an
+explicitly optional, resource-intensive legacy backend — see
+`requirements-paddle.txt`.
 
 ## Current (implemented and verified this iteration)
 
@@ -104,64 +118,91 @@ configured* (no remote provider set up), and *available*, rather than
 probing dependencies ad hoc — the UI's "Model availability" panel and the
 CLI's `doctor` command both read from this.
 
-## Deep Analyze (remote, BYOK)
+## Deep Analyze (Gemini, BYOK)
 
-Deep Analyze is provider-based (`local_lens/deep_analysis/`), not hardwired
-to any one backend:
-
-```
-DeepAnalysisProvider (same shape as OCREngine: name + extract(image, langs))
-   ├── OpenAICompatibleVisionProvider   -- any /v1/chat/completions host
-   └── PaddleVLLMProvider               -- PaddleOCR-VL on a self-hosted vLLM server
-```
-
-Both call the remote HTTP endpoint directly with the stdlib
-(`urllib.request`) — no `paddlex`/`paddleocr` install required locally, even
-for the PaddleOCR-VL provider, since PaddleOCR-VL's own vLLM remote-server
-mode already exposes an OpenAI-compatible endpoint.
-
-Configure via environment variables (see `.env.example`):
+As of V5, Local Lens's production Deep Analyze feature is **Gemini only**,
+frozen to the exact model measured in a real benchmark
+(`docs/DEEP_PROVIDER_RESULTS.md`: 12/12 successful, 12/12 valid structured
+output, 0 malformed, 0 hallucinated content, composite score 0.9934):
 
 ```env
-LOCAL_LENS_DEEP_PROVIDER=openai-compatible   # or paddle-vllm
-LOCAL_LENS_DEEP_BASE_URL=https://your-endpoint/v1
-LOCAL_LENS_DEEP_API_KEY=                     # optional
-LOCAL_LENS_DEEP_MODEL=                       # optional, provider default otherwise
+LOCAL_LENS_GEMINI_API_KEY=
 ```
 
-Unset `LOCAL_LENS_DEEP_BASE_URL` (the default) means Deep Analyze is simply
-unavailable — Fast mode is unaffected. Local Lens does not operate any
-inference infrastructure itself; this is bring-your-own-endpoint by design
-(no billing system, no centrally managed GPU, no image proxy through a
-Local Lens backend).
+Get a key from [Google AI Studio](https://aistudio.google.com/apikey) (see
+Google's own docs for current sign-up steps — Local Lens doesn't operate
+this infrastructure or issue keys). Copy `.env.example` to `.env` and fill
+this in, or set it as a real environment variable — either works
+(`local_lens/env_file.py`: real env vars always win over `.env`). Leave it
+unset and Deep Analyze simply shows **"requires a Gemini API key"**; Fast
+mode is completely unaffected.
 
-**Failure handling**: timeouts, 401/403, 429, 5xx, and malformed responses
-each map to a specific, secret-free error (`local_lens/deep_analysis/base.py`)
-— the UI catches these and falls back to Fast OCR with a visible message
-rather than crashing; the CLI reports a clear non-zero-exit error. No
-request retries on 401/403 (a bad key won't fix itself on retry); one
-retry on timeout/429/5xx.
+**Deep Analyze is never automatic.** Selecting it in the sidebar shows a
+privacy disclosure and a button — nothing is sent until you click it:
 
-**Privacy**: Fast mode never leaves the device. Deep Analyze sends the
-selected image to whatever host you configured — the sidebar states this
-explicitly before the first Deep request in a session, and Local Lens never
-calls a remote provider without an explicit Deep Analyze action (opening
+> Deep Analyze sends this image to Google's Gemini API for processing.
+> Google's free-tier API may use submitted content to improve products and
+> may involve human review.
+
+That free-vs-paid-tier distinction is real and matters: Google's own terms
+treat the free Developer API tier differently from a paid/billed account
+(free-tier content may train Google's models and be human-reviewed; paid
+is not used for training). Local Lens can't detect which tier your key is
+on — set `LOCAL_LENS_GEMINI_TIER=free|paid` to get tier-specific messaging,
+or leave it unset for conservative (assume-free-tier) messaging.
+
+If Deep Analyze fails (no key, rejected key, rate limit, timeout, server
+error), the UI says so explicitly — it never silently substitutes the Fast
+result and calls it a successful Deep result. Your Fast result (already
+computed automatically, since Fast is always local/instant) stays visible
+in its own section regardless of what Deep does.
+
+**Table handling**: when Gemini identifies a table, Local Lens shows a real
+structured preview (not flattened back to plain text) with CSV/Markdown/
+JSON export, and handles multiple tables in one image explicitly (a
+selector, not a silent pick-the-first-one).
+
+**Under the hood**, Deep Analyze is provider-based
+(`local_lens/deep_analysis/`), not hardwired to Gemini specifically — the
+`DeepAnalysisProvider` abstraction (same shape as `OCREngine`: `name` +
+`extract(image, langs)`) is intentionally still extensible, with adapters
+for OpenAI-compatible endpoints, Anthropic, and a self-hosted PaddleOCR-VL
+vLLM server already built and tested. **None of those are exposed as
+normal UI/CLI choices yet** — only Gemini is, based on actual benchmark
+evidence, not a guess. See
+[docs/V5_GEMINI_DEEP.md](docs/V5_GEMINI_DEEP.md) for the full architecture,
+why Gemini was chosen, why self-hosting PaddleOCR-VL was shelved, and what
+would justify revisiting either decision.
+
+**CLI**: `local-lens extract image.png --mode deep --allow-remote` (the
+`--allow-remote` flag is required for non-interactive/scripted use — it
+prevents a script from unexpectedly uploading an image; Fast mode needs no
+such flag, since it never leaves the device:
+`local-lens extract image.png --mode fast` just works, no key, no flag, no
+internet).
+
+**Failure handling**: timeouts, 401/403, 429, and 5xx each map to a
+specific, secret-free error (`local_lens/deep_analysis/base.py`) — the UI
+shows the specific failure rather than crashing or pretending Fast is Deep;
+the CLI reports a clear non-zero-exit error. No request retries on
+401/403 (a bad key won't fix itself on retry); one retry on timeout/429/5xx.
+
+**Privacy**: Fast mode never leaves the device — enforced by
+`tests/test_no_silent_network.py`. Deep Analyze sends the selected image to
+Google's Gemini API, and only when you explicitly click the button; opening
 the app, switching tabs, uploading, and Fast extraction all make zero
-network calls — enforced by `tests/test_no_silent_network.py`).
+network calls, and mode-switching alone (without an image) never triggers
+a request either.
 
-**Not yet done**: no live server has been exercised against these providers
-in this environment (that requires the user to actually provision one —
-out of scope until explicitly approved); request/response handling is
-covered by mocked-transport tests instead
-(`tests/test_deep_analysis.py`, `tests/test_anthropic_provider.py`). See
-[docs/DEEP_PROVIDER_EVALUATION.md](docs/DEEP_PROVIDER_EVALUATION.md) for
-the researched provider comparison (OpenAI, Anthropic, Gemini, hosted-open
-VLMs, PaddleOCR-VL remote, specialist OCR APIs) and
-[docs/REMOTE_BENCHMARK_PLAN.md](docs/REMOTE_BENCHMARK_PLAN.md) for the
-proposed (not-yet-executed) 5-provider, 12-fixture bake-off — run
-`local-lens providers` (config validation only) or `local-lens
-benchmark-deep --dry-run` (enumerates the bake-off, zero network calls) to
-see it locally.
+**Benchmark/developer tooling stays separate**: `local-lens
+benchmark-deep` (Groq/Gemini/OpenAI/Anthropic/Fireworks bake-off machinery)
+uses its own dedicated `LOCAL_LENS_BENCHMARK_*` credentials, never the
+production `LOCAL_LENS_GEMINI_API_KEY` above, and vice versa — `local-lens
+providers` reports both sets distinctly so one is never mistaken for the
+other. See [docs/DEEP_PROVIDER_EVALUATION.md](docs/DEEP_PROVIDER_EVALUATION.md),
+[docs/REMOTE_BENCHMARK_PLAN.md](docs/REMOTE_BENCHMARK_PLAN.md), and
+[docs/DEEP_PROVIDER_RESULTS.md](docs/DEEP_PROVIDER_RESULTS.md) for the full
+research/benchmark trail behind the Gemini decision.
 
 ## Experimental (not in the production path)
 
@@ -293,10 +334,11 @@ installed package rather than assuming).
 - **Fast mode** runs entirely on your machine — no image or extracted text
   is sent anywhere. `tests/test_no_silent_network.py` enforces that opening
   the app, uploading, and Fast extraction never open a network connection.
-- **Deep Analyze** sends the selected image to whatever remote endpoint you
-  configured (see [Deep Analyze](#deep-analyze-remote-byok)) — it is
-  explicit, opt-in, and never silently triggered. Local Lens does not
-  operate this infrastructure itself; you point it at your own endpoint.
+- **Deep Analyze** sends the selected image to Google's Gemini API (see
+  [Deep Analyze](#deep-analyze-gemini-byok)) — it is explicit, opt-in
+  (requires clicking a button after seeing a disclosure), and never
+  silently triggered. Local Lens does not operate this infrastructure
+  itself; you bring your own Gemini API key.
 - **Model weights download from the internet on first use** of a local
   engine/pipeline (EasyOCR, and — only if you've opted into
   `requirements-paddle.txt` — PaddleOCR/the table pipeline/legacy local
@@ -320,7 +362,7 @@ streamlit run app.py
 This installs and runs Fast mode only — no Paddle, no model download beyond
 EasyOCR's own first-use cache. Optional PaddleOCR + table extraction: see
 [PaddleOCR](#paddleocr-optional-legacy-local-heavy-backend) above. Optional
-Deep Analyze: see [Deep Analyze](#deep-analyze-remote-byok) above.
+Deep Analyze: see [Deep Analyze](#deep-analyze-gemini-byok) above.
 Platform-specific setup notes are in [Setup.md](Setup.md).
 
 **CLI** (via `pyproject.toml`'s `local-lens` entry point, or `python -m

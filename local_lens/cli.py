@@ -14,7 +14,6 @@ import sys
 from pathlib import Path
 
 from local_lens.backends import (
-    deep_backend_status,
     fast_backend_statuses,
     legacy_local_deep_status,
     table_backend_status,
@@ -27,12 +26,16 @@ from local_lens.preprocessing.image import PRESET_NONE
 from local_lens.services.ocr_service import OCRService
 
 
-def _resolve_benchmark_env() -> dict:
+def _resolve_env() -> dict:
     """Merges real process env vars with project-local `.env` (real env
-    wins -- see load_env's docstring). Used only by benchmark-deep's
-    LOCAL_LENS_BENCHMARK_* credential resolution; never logs or prints
-    anything from the result."""
+    wins -- see load_env's docstring). Used for both production
+    (LOCAL_LENS_GEMINI_API_KEY) and benchmark (LOCAL_LENS_BENCHMARK_*)
+    credential resolution; never logs or prints anything from the result."""
     return load_env()
+
+
+# Backward-compat alias -- some call sites read more clearly with this name.
+_resolve_benchmark_env = _resolve_env
 
 
 _FORMATTERS = {
@@ -65,15 +68,14 @@ def _build_fast_service(engine_name: str) -> OCRService:
 
 def _run_deep(image_path: Path, langs: list[str]) -> DocumentResult:
     from local_lens.deep_analysis.base import DeepAnalysisError
-    from local_lens.deep_analysis.config import build_deep_provider
+    from local_lens.deep_analysis.production import build_production_gemini_provider
     from local_lens.services.ocr_service import OCRService as _OCRService
 
-    provider = build_deep_provider()
+    provider = build_production_gemini_provider(env=_resolve_env())
     if provider is None:
         raise SystemExit(
-            "Deep Analyze is not configured. Set LOCAL_LENS_DEEP_BASE_URL "
-            "(and optionally LOCAL_LENS_DEEP_PROVIDER / LOCAL_LENS_DEEP_API_KEY / "
-            "LOCAL_LENS_DEEP_MODEL) to enable it. See README.md 'Deep Analyze'."
+            "Deep Analyze requires a Gemini API key. Set LOCAL_LENS_GEMINI_API_KEY "
+            "(directly or in a project-local .env) to enable it. See README.md 'Deep Analyze'."
         )
 
     service = _OCRService(provider)
@@ -94,6 +96,12 @@ def cmd_extract(args: argparse.Namespace) -> int:
     langs = [args.lang] if args.lang else [DEFAULT_LANGUAGE]
 
     if args.mode == "deep":
+        if not args.allow_remote:
+            print(
+                "Deep mode sends the image to Gemini. Re-run with --allow-remote.",
+                file=sys.stderr,
+            )
+            return 1
         result = _run_deep(image_path, langs)
     else:
         service = _build_fast_service(args.engine)
@@ -117,23 +125,34 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 
 def cmd_providers(_args: argparse.Namespace) -> int:
-    """Offline configuration validation only -- never pings an endpoint
-    (see local_lens/deep_analysis/config.py's validate_deep_provider_config)."""
-    from local_lens.deep_analysis.config import load_deep_provider_config, validate_deep_provider_config
+    """Offline configuration validation only -- never pings an endpoint.
+    Deliberately three distinct sections: Fast (local), Deep (the one
+    production Gemini provider), and Benchmark (developer/CI tooling,
+    LOCAL_LENS_BENCHMARK_* credentials) -- keeping them visually separate
+    is the whole point, so a benchmark credential is never mistaken for
+    production config or vice versa."""
+    from local_lens.deep_analysis.finalists import FINALISTS, credential_configured
+    from local_lens.deep_analysis.production import production_gemini_status
 
+    env = _resolve_env()
+
+    print("Fast (local):")
     for status in fast_backend_statuses():
         mark = "available" if status.available else status.reason or "not installed"
-        print(f"Fast / {status.name}\n  {mark}\n")
+        print(f"  {status.name:<12} {mark}")
 
-    config = load_deep_provider_config()
-    problems = validate_deep_provider_config()
-    print(f"Deep / {config.provider if config else '(none)'}")
-    if config is None:
-        print("  not configured")
-    elif problems:
-        print(f"  configured, but not valid: {'; '.join(problems)}")
-    else:
-        print(f"  configured ({config.base_url}, model={config.model}) -- not tested (no network call made)")
+    print("\nDeep (production, BYOK):")
+    deep = production_gemini_status(env)
+    mark = f"configured ({deep.reason})" if deep.available else deep.reason
+    print(f"  Gemini       {mark}")
+
+    print("\nBenchmark (developer/CI tooling -- LOCAL_LENS_BENCHMARK_*, separate from Deep above):")
+    for fc in FINALISTS:
+        if fc.credential_env_var is None:
+            continue
+        configured = credential_configured(fc, env)
+        print(f"  {fc.label:<38} {'configured' if configured else 'not configured'}")
+
     return 0
 
 
@@ -315,10 +334,13 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     mark = "installed" if legacy.available else "not installed (expected)"
     print(f"  {'paddleocr_vl_local':<20} {mark}")
 
-    print("\nDeep Analyze (remote, BYOK):")
-    deep = deep_backend_status()
-    mark = f"configured ({deep.reason})" if deep.available else deep.reason or "not configured"
-    print(f"  {deep.name:<20} {mark}")
+    from local_lens.deep_analysis.production import production_gemini_status
+
+    print("\nDeep Analyze (production -- Gemini only, BYOK):")
+    deep = production_gemini_status(_resolve_env())
+    mark = f"configured ({deep.reason})" if deep.available else deep.reason
+    print(f"  {'gemini':<20} {mark}")
+    print("\n  (run `local-lens providers` for benchmark/developer-tooling credential status)")
     return 0
 
 
@@ -332,6 +354,11 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--engine", choices=["easyocr", "paddleocr"], default="easyocr", help="Fast-mode engine")
     extract.add_argument("--format", choices=["text", "markdown", "json", "csv"], default=None)
     extract.add_argument("--lang", default=None, help=f"Language code (default: {DEFAULT_LANGUAGE})")
+    extract.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="Required alongside --mode deep -- explicit acknowledgment that the image will be sent to Gemini.",
+    )
     extract.set_defaults(func=cmd_extract)
 
     doctor = subparsers.add_parser("doctor", help="Report which backends are available/configured")
