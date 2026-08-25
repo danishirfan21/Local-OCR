@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
+from desktop.runtime_context import is_frozen
+
 _RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _VALUE_NAME = "LocalLens"
 
@@ -71,7 +73,7 @@ def launch_command() -> str:
     (frozen) executable and Python-module development launches (items
     32/33) -- never hardcodes a user-facing repo path beyond what a dev
     checkout inherently requires, and never requires Administrator."""
-    if getattr(sys, "frozen", False):
+    if is_frozen():
         return f'"{sys.executable}" {START_HIDDEN_FLAG}'
 
     repo_root = Path(__file__).resolve().parent.parent

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from desktop.ocr_service_factory import build_fast_service
+from desktop.ocr_service_factory import build_fast_service, friendly_model_error_message
 from local_lens.languages import DEFAULT_LANGUAGE
 from local_lens.preprocessing.image import PRESET_NONE
 
@@ -35,6 +35,6 @@ class OCRWorker(QThread):
             service = build_fast_service()
             result = service.process(self._image_bytes, [self._lang], PRESET_NONE)
         except Exception as exc:  # noqa: BLE001 -- any engine failure must reach the UI, not crash the thread
-            self.failed.emit(str(exc))
+            self.failed.emit(friendly_model_error_message(exc))
             return
         self.succeeded.emit(result)

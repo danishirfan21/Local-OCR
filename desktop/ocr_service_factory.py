@@ -9,6 +9,22 @@ from local_lens.engines.easyocr_engine import EasyOCREngine
 from local_lens.languages import DEFAULT_LANGUAGE
 from local_lens.services.ocr_service import OCRService
 
+MODEL_UNAVAILABLE_MESSAGE = (
+    "Local OCR model files are unavailable. Fast OCR needs its model files "
+    "downloaded once (run the desktop app in a normal development setup, or "
+    "see docs/V6_5_RELEASE_READINESS.md's model strategy)."
+)
+
+
+def _new_fast_engine() -> EasyOCREngine:
+    # download_enabled=False: Fast OCR is guaranteed zero-network-calls
+    # (tested in tests/test_no_silent_network.py and
+    # tests/test_app_controller.py) -- EasyOCR's own default of silently
+    # downloading a missing ~300MB model set over HTTP would quietly
+    # violate that guarantee. A missing model surfaces as a clear
+    # FileNotFoundError instead (see friendly_model_error_message below).
+    return EasyOCREngine(download_enabled=False)
+
 
 def build_fast_service() -> OCRService:
     table_extractor = None
@@ -20,7 +36,7 @@ def build_fast_service() -> OCRService:
     except ImportError:
         pass
 
-    return OCRService(EasyOCREngine(), table_extractor=table_extractor)
+    return OCRService(_new_fast_engine(), table_extractor=table_extractor)
 
 
 def warmup_fast_engine(lang: str = DEFAULT_LANGUAGE) -> None:
@@ -33,6 +49,14 @@ def warmup_fast_engine(lang: str = DEFAULT_LANGUAGE) -> None:
     it has no file-path dependency."""
     from PIL import Image
 
-    from local_lens.engines.easyocr_engine import EasyOCREngine
+    _new_fast_engine().extract(Image.new("RGB", (16, 16), color="white"), [lang])
 
-    EasyOCREngine().extract(Image.new("RGB", (16, 16), color="white"), [lang])
+
+def friendly_model_error_message(exc: Exception) -> str:
+    """EasyOCR raises a bare FileNotFoundError (with an absolute path in
+    its text) when download_enabled=False and a model file is missing --
+    translated here to the same user-facing copy item 35/36 specify,
+    rather than surfacing a raw path/exception string in the UI."""
+    if isinstance(exc, FileNotFoundError):
+        return MODEL_UNAVAILABLE_MESSAGE
+    return str(exc)

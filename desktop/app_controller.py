@@ -93,6 +93,7 @@ class DesktopApplication:
 
         self.warmup_worker = WarmupWorker()
         self.warmup_worker.finished_warmup.connect(self._on_warmup_finished)
+        self.warmup_worker.failed.connect(self._on_warmup_failed)
         if enable_warmup:
             # Skippable for tests (item 45's "no actual OCR needed") --
             # starting this unconditionally would trigger a real ~10s
@@ -121,6 +122,10 @@ class DesktopApplication:
         logger.info("OCR ready")
         self.tray.tray_icon.setToolTip("Local Lens -- ready")
         self.main_window.set_readiness("Fast OCR ready")
+
+    def _on_warmup_failed(self, message: str) -> None:
+        self.tray.tray_icon.setToolTip("Local Lens -- OCR unavailable")
+        self.main_window.set_readiness(message)
 
     def _on_settings_requested(self) -> None:
         gemini_configured = production_gemini_configured(load_env())
