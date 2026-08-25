@@ -23,7 +23,12 @@ from local_lens.deep_analysis.base import (
 )
 from local_lens.deep_analysis.benchmark import estimate_request_cost
 from local_lens.deep_analysis.benchmark_cases import build_deep_benchmark_cases
-from local_lens.deep_analysis.deep_metrics import score_code_case, score_table_case, score_text_case
+from local_lens.deep_analysis.deep_metrics import (
+    parse_markdown_table,
+    score_code_case,
+    score_table_case,
+    score_text_case,
+)
 from local_lens.deep_analysis.finalists import (
     ESTIMATED_INPUT_TOKENS_PER_REQUEST,
     ESTIMATED_OUTPUT_TOKENS_PER_REQUEST,
@@ -209,7 +214,12 @@ class RunSummary:
 def _score_case(case, doc_result) -> dict:
     text = doc_result.text or "\n".join(b.text for b in doc_result.blocks)
     if case.expected_table is not None:
-        produced_rows = doc_result.tables[0].rows if doc_result.tables else []
+        # Remote providers represent a table as markdown inside the reply
+        # text (per prompts.py), not as this project's own TableResult --
+        # DocumentResult.tables is only ever populated by the local
+        # PaddleOCR table pipeline. Fall back to parsing markdown from the
+        # text so a correct reply doesn't get scored as an empty failure.
+        produced_rows = doc_result.tables[0].rows if doc_result.tables else parse_markdown_table(text)
         return {"kind": "table", **score_table_case(produced_rows, case.expected_table)}
     if case.category == "code":
         return {"kind": "code", **score_code_case(text, case.expected_text or "")}

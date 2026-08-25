@@ -1,0 +1,420 @@
+{
+  "benchmark_version": "deep-v1",
+  "round": "free",
+  "run_id": "20260825T063527Z",
+  "benchmark_date": "2026-08-25",
+  "repository_commit": "6999066",
+  "fixture_count": 12,
+  "manifest": {
+    "benchmark_version": "deep-v1",
+    "case_count": 12,
+    "cases": [
+      {
+        "id": "short_ui_save",
+        "category": "short_ui",
+        "image_sha256": "4d24fd7ae791ed7af956ee87138b380ffffde61267016870945f7e10b46d5890",
+        "ground_truth_sha256": "1509f561f2416598629b886ad7d3c05a7e221e4e0675c84bbff4ee6d9e03913d",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "paragraph",
+        "category": "english",
+        "image_sha256": "a5b1ce768295bc2da27148b19b76d2d5d6e9380b8f970904b6b118fbd06180cc",
+        "ground_truth_sha256": "63897a828b501acf8bb423b1859cd259e7fd5389d10bdb0e6451c715786a8b59",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "extreme_wide_line",
+        "category": "edge_cases",
+        "image_sha256": "b5c07a3899a6480519d3839a855452612b2595d058a7567d56f8ebd917d71a2e",
+        "ground_truth_sha256": "63897a828b501acf8bb423b1859cd259e7fd5389d10bdb0e6451c715786a8b59",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "numeric",
+        "category": "english",
+        "image_sha256": "452bf81d2c2927207ae6040c406acda22d34bc376248bc82857bd627ec44b491",
+        "ground_truth_sha256": "0ebc2047e02f5ed2e151bae7469fa09b1fd582bfd1456aadef2bdc86a4a1b0aa",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "python",
+        "category": "code",
+        "image_sha256": "c07f4c48118ba8a570f87d8ce76d4b9bbbd56fbf4f0f123e8c92d41e43db2074",
+        "ground_truth_sha256": "e6b3b643c900f8d3a37eed46c66112cdff896b395060c74e000b60074fd599dc",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "typescript",
+        "category": "code",
+        "image_sha256": "fac832c5950e0828d612b1a4f7dae168425e3fcafa98c52f1fdf6a1cf732026e",
+        "ground_truth_sha256": "fed38bcf0d5d69693d4b0a2972b2926a1841e5cc5a97a3118f9f3e831a4c9cce",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "table_simple",
+        "category": "tables",
+        "image_sha256": "0973d88a4c6001cdbcf7ce2810009de486c61a655e8484091c22b4304931d041",
+        "ground_truth_sha256": "4787cf318634f7195ca3286df5fa65ee50edcf9d4d030e003e6702235526dd65",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=table"
+      },
+      {
+        "id": "table_dense",
+        "category": "tables",
+        "image_sha256": "4e2122f3169b6dd4de2ed4b5ffdc20853d4d0db693197a258d76fef8b87fff21",
+        "ground_truth_sha256": "9182a4e5684b14c4491ebf1cf8e1d1a9856870b9ecc200d90030313ab588a248",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=table"
+      },
+      {
+        "id": "urdu_paragraph",
+        "category": "urdu",
+        "image_sha256": "a44c956caf460b11a01132a752b4b54f696f137d1aa966c68250a2a3afc6fb3d",
+        "ground_truth_sha256": "ba07cb7ddceee6df5983a84ee27091fa27e6e8fd97dd6be6d9662d2cc3a537c0",
+        "languages": [
+          "ur"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "mixed_urdu_english",
+        "category": "mixed",
+        "image_sha256": "a250034a1e84c40da8e787b17dc837ca65a4171edf6b8f72ecb282553e1e038a",
+        "ground_truth_sha256": "abb9b7419290536a49b53d7ad473ec6207584017f570bbf2a2ba1cfc6a7adf2d",
+        "languages": [
+          "ur",
+          "en"
+        ],
+        "notes": "corpus kind=text"
+      },
+      {
+        "id": "table_financial",
+        "category": "tables",
+        "image_sha256": "cd1a8dfe7c1ec3c12118bd303bfececf8ba96e56c466dc9177e5d0f45df4447b",
+        "ground_truth_sha256": "5adb17808343a1f7b957473dc1a7dbcb05c77962e3f74d2b2c257f36962407a6",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=table"
+      },
+      {
+        "id": "scan_clean",
+        "category": "photo_scan",
+        "image_sha256": "5ca530980ab22c0736bffb39636f37f09dfb7d11ce0356837fc0828f8ecbdf9b",
+        "ground_truth_sha256": "025f5354c0d33e794c0739e1584a81df19b7e2963a244fae2c0dff46734f2807",
+        "languages": [
+          "en"
+        ],
+        "notes": "corpus kind=transform"
+      }
+    ]
+  },
+  "providers": {
+    "Groq Qwen3.6-27B": {
+      "model": "qwen/qwen3.6-27b",
+      "status": "FAILED -- HTTP 403 on all attempted requests, dropped after 2 consecutive auth failures",
+      "aggregate": {
+        "requests_attempted": 2,
+        "requests_successful": 0,
+        "requests_failed": 2,
+        "mean_cer": null,
+        "mean_similarity": null,
+        "mean_extra_content_rate": null,
+        "mean_table_cell_accuracy": null,
+        "mean_code_indentation_preservation": null,
+        "median_latency_ms": null,
+        "mean_latency_ms": null,
+        "min_latency_ms": null,
+        "max_latency_ms": null,
+        "total_input_tokens": null,
+        "total_output_tokens": null,
+        "total_estimated_cost_usd": 0.0,
+        "expected_actual_charge_usd": 0.0
+      },
+      "per_case": [
+        {
+          "case_id": "short_ui_save",
+          "success": false,
+          "latency_ms": 139.99999999941792,
+          "http_status": null,
+          "input_usage": null,
+          "output_usage": null,
+          "estimated_cost_usd": null,
+          "metrics": null,
+          "error": "https://api.groq.com/openai/v1 rejected the request as unauthorized (HTTP 403). Check LOCAL_LENS_DEEP_API_KEY."
+        },
+        {
+          "case_id": "paragraph",
+          "success": false,
+          "latency_ms": 62.000000001717126,
+          "http_status": null,
+          "input_usage": null,
+          "output_usage": null,
+          "estimated_cost_usd": null,
+          "metrics": null,
+          "error": "https://api.groq.com/openai/v1 rejected the request as unauthorized (HTTP 403). Check LOCAL_LENS_DEEP_API_KEY."
+        }
+      ]
+    },
+    "Gemini 3.1 Flash-Lite": {
+      "model": "gemini-3.1-flash-lite",
+      "status": "completed",
+      "aggregate": {
+        "requests_attempted": 12,
+        "requests_successful": 12,
+        "requests_failed": 0,
+        "mean_cer": 0.0465,
+        "mean_similarity": 0.9786,
+        "mean_extra_content_rate": 0.0,
+        "mean_table_cell_accuracy": 1.0,
+        "mean_code_indentation_preservation": 1.0,
+        "median_latency_ms": 1430.0,
+        "mean_latency_ms": 1609.6,
+        "min_latency_ms": 1157.0,
+        "max_latency_ms": 2860.0,
+        "total_input_tokens": 17996,
+        "total_output_tokens": 1392,
+        "total_estimated_cost_usd": 0.0,
+        "expected_actual_charge_usd": 0.0
+      },
+      "per_case": [
+        {
+          "case_id": "short_ui_save",
+          "success": true,
+          "latency_ms": 1516.0,
+          "http_status": 200,
+          "input_usage": 1522,
+          "output_usage": 60,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "paragraph",
+          "success": true,
+          "latency_ms": 2860.0,
+          "http_status": 200,
+          "input_usage": 1540,
+          "output_usage": 106,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0182,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "extreme_wide_line",
+          "success": true,
+          "latency_ms": 1407.0,
+          "http_status": 200,
+          "input_usage": 1357,
+          "output_usage": 100,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "numeric",
+          "success": true,
+          "latency_ms": 1860.0,
+          "http_status": 200,
+          "input_usage": 1522,
+          "output_usage": 102,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "python",
+          "success": true,
+          "latency_ms": 2062.0,
+          "http_status": 200,
+          "input_usage": 1524,
+          "output_usage": 112,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "code",
+            "cer": 0.0,
+            "line_count_similarity": 1.0,
+            "indentation_preservation": 1.0,
+            "punctuation_accuracy": 1.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "typescript",
+          "success": true,
+          "latency_ms": 1343.0,
+          "http_status": 200,
+          "input_usage": 1482,
+          "output_usage": 128,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "code",
+            "cer": 0.0,
+            "line_count_similarity": 1.0,
+            "indentation_preservation": 1.0,
+            "punctuation_accuracy": 1.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "table_simple",
+          "success": true,
+          "latency_ms": 1329.0,
+          "http_status": 200,
+          "input_usage": 1524,
+          "output_usage": 136,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "table",
+            "row_count_correct": true,
+            "column_count_correct": true,
+            "predicted_rows": 3,
+            "ground_truth_rows": 3,
+            "predicted_columns": 3,
+            "ground_truth_columns": 3,
+            "cell_accuracy": 1.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "table_dense",
+          "success": true,
+          "latency_ms": 1453.0,
+          "http_status": 200,
+          "input_usage": 1535,
+          "output_usage": 198,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "table",
+            "row_count_correct": true,
+            "column_count_correct": true,
+            "predicted_rows": 5,
+            "ground_truth_rows": 5,
+            "predicted_columns": 4,
+            "ground_truth_columns": 4,
+            "cell_accuracy": 1.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "urdu_paragraph",
+          "success": true,
+          "latency_ms": 1235.0,
+          "http_status": 200,
+          "input_usage": 1526,
+          "output_usage": 94,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "mixed_urdu_english",
+          "success": true,
+          "latency_ms": 1157.0,
+          "http_status": 200,
+          "input_usage": 1522,
+          "output_usage": 87,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.3846,
+            "wer": 0.5,
+            "similarity": 0.8077,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "table_financial",
+          "success": true,
+          "latency_ms": 1812.0,
+          "http_status": 200,
+          "input_usage": 1476,
+          "output_usage": 165,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "table",
+            "row_count_correct": true,
+            "column_count_correct": true,
+            "predicted_rows": 3,
+            "ground_truth_rows": 3,
+            "predicted_columns": 3,
+            "ground_truth_columns": 3,
+            "cell_accuracy": 1.0
+          },
+          "error": null
+        },
+        {
+          "case_id": "scan_clean",
+          "success": true,
+          "latency_ms": 1281.0,
+          "http_status": 200,
+          "input_usage": 1466,
+          "output_usage": 104,
+          "estimated_cost_usd": 0.0,
+          "metrics": {
+            "kind": "text",
+            "cer": 0.0154,
+            "wer": 0.0,
+            "similarity": 1.0,
+            "extra_content_rate": 0.0
+          },
+          "error": null
+        }
+      ]
+    }
+  }
+}

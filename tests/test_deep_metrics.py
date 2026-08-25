@@ -10,6 +10,7 @@ from local_lens.deep_analysis.deep_metrics import (
     composite_score,
     indentation_preservation,
     line_count_similarity,
+    parse_markdown_table,
     punctuation_accuracy,
     score_code_case,
     score_table_case,
@@ -137,3 +138,69 @@ def test_composite_score_higher_for_better_provider():
         reliability=ReliabilitySummary(total=10, successes=3, structured_responses=2),
     )
     assert composite_score(good) > composite_score(bad)
+
+
+# --- parse_markdown_table --------------------------------------------------
+# Regression coverage for a real bug found during Round 1 execution: Gemini
+# (and, by the shared prompt contract, any other provider) represents a
+# table as markdown inside the reply text rather than this project's own
+# TableResult -- DocumentResult.tables was always empty for remote
+# providers, so every table fixture scored as a total failure regardless
+# of extraction quality until runner.py's _score_case fell back to this
+# parser. Fixtures below are the ACTUAL captured Gemini responses from
+# benchmarks_remote/results/20260825T063222Z/raw/ (table_simple/
+# table_dense), not synthetic examples.
+
+
+def test_parse_markdown_table_matches_real_gemini_table_simple_response():
+    text = "| Product | Quantity | Price |\n| --- | --- | --- |\n| Keyboard | 2 | 50 |\n| Mouse | 1 | 25 |"
+    rows = parse_markdown_table(text)
+    assert rows == [
+        ["Product", "Quantity", "Price"],
+        ["Keyboard", "2", "50"],
+        ["Mouse", "1", "25"],
+    ]
+
+
+def test_parse_markdown_table_matches_real_gemini_table_dense_response():
+    text = (
+        "| Name | Score | Rank | Team |\n|---|---|---|---|\n"
+        "| Alice | 92 | 1 | Red |\n| Bob | 85 | 2 | Blue |\n"
+        "| Carol | 77 | 3 | Red |\n| Dave | 65 | 4 | Blue |"
+    )
+    rows = parse_markdown_table(text)
+    assert rows[0] == ["Name", "Score", "Rank", "Team"]
+    assert len(rows) == 5  # header + 4 data rows
+    assert rows[-1] == ["Dave", "65", "4", "Blue"]
+
+
+def test_parse_markdown_table_skips_separator_row_regardless_of_dash_count():
+    assert parse_markdown_table("| A | B |\n|:--|--:|\n| 1 | 2 |") == [["A", "B"], ["1", "2"]]
+
+
+def test_parse_markdown_table_returns_empty_for_non_table_text():
+    assert parse_markdown_table("just some plain text, no pipes here") == []
+
+
+def test_score_case_table_falls_back_to_markdown_parsing():
+    # End-to-end: a DocumentResult shaped exactly like what remote
+    # providers actually return (empty .tables, markdown in .text) must
+    # score correctly against ground truth, not as an empty-table failure.
+    from local_lens.deep_analysis.runner import _score_case
+    from local_lens.deep_analysis.benchmark import DeepBenchmarkCase
+    from local_lens.models import DocumentResult
+    from pathlib import Path
+
+    case = DeepBenchmarkCase(
+        id="table_simple", category="tables", image_path=Path("unused.png"),
+        expected_table=[["Product", "Quantity", "Price"], ["Keyboard", "2", "50"], ["Mouse", "1", "25"]],
+    )
+    doc_result = DocumentResult(
+        text="| Product | Quantity | Price |\n| --- | --- | --- |\n| Keyboard | 2 | 50 |\n| Mouse | 1 | 25 |",
+        blocks=[], language="en", engine="gemini", metadata={}, tables=[],
+    )
+    metrics = _score_case(case, doc_result)
+    assert metrics["kind"] == "table"
+    assert metrics["cell_accuracy"] == 1.0
+    assert metrics["row_count_correct"] is True
+    assert metrics["column_count_correct"] is True

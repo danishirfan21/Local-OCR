@@ -8,6 +8,7 @@ top-level `benchmarks/metrics.py` module in imports.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from benchmarks.metrics import character_error_rate, normalized_similarity, table_structure_accuracy, word_error_rate
@@ -57,6 +58,39 @@ def score_text_case(produced_text: str, expected_text: str) -> dict:
 
 def score_table_case(produced_rows: list[list[str]], expected_rows: list[list[str]]) -> dict:
     return table_structure_accuracy(produced_rows, expected_rows)
+
+
+_SEPARATOR_CELL = re.compile(r":?-{2,}:?$")
+
+
+def parse_markdown_table(text: str) -> list[list[str]]:
+    """Extract a markdown pipe-table from free-form text into rows, header
+    included as the first row (matching this project's ground-truth
+    convention -- see benchmarks/corpus.py's CORPUS entries). Returns []
+    if no table-shaped lines are found.
+
+    Deep Analyze providers are asked (prompts.py) to represent a table as
+    markdown inside a block's text, not as this project's own TableResult
+    structure -- DocumentResult.tables is only ever populated by the local
+    PaddleOCR table pipeline, never by a remote provider adapter. Without
+    this parser, every table fixture's `doc_result.tables` is empty
+    regardless of extraction quality, which would silently score every
+    provider as a total table failure even when the markdown reply was
+    correct -- exactly the "provider was right, our parser discarded it"
+    failure mode this project has already been burned by once (see
+    docs/V4_DIRECTION.md's PaddleOCR-VL evaluator bug)."""
+    rows: list[list[str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if "|" not in line:
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if not any(cells):
+            continue
+        if all(_SEPARATOR_CELL.fullmatch(c) for c in cells if c):
+            continue  # the "|---|---|---|" header/body divider row
+        rows.append(cells)
+    return rows
 
 
 # --- code-specific signals -------------------------------------------------
