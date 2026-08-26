@@ -103,3 +103,15 @@ def test_icon_and_version_files_actually_exist():
     version_path = _SPEC_PATH.parent / "version_info.txt"
     assert icon_path.is_file()
     assert version_path.is_file()
+
+
+def test_spec_bundles_third_party_notices():
+    # V6.9 RC QA finding: THIRD_PARTY_NOTICES.txt (V6.8's EasyOCR
+    # Apache-2.0 + CRAFT-pytorch MIT attribution) existed in the source
+    # tree but was never added to `datas`, so it never reached the
+    # shipped ZIP -- a real licensing-compliance gap for a build that
+    # redistributes those projects' model weights.
+    text = _spec_text()
+    assert "THIRD_PARTY_NOTICES.txt" in text
+    notices_path = _SPEC_PATH.parent.parent / "THIRD_PARTY_NOTICES.txt"
+    assert notices_path.is_file()

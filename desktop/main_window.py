@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from desktop.icon import default_icon
 from desktop.ocr_worker import OCRWorker
 from local_lens.models import DocumentResult
 
@@ -51,6 +52,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Local Lens")
+        # Explorer/taskbar already show the frozen EXE's own icon resource
+        # (packaging/assets/app_icon.ico); Qt does not inherit that for a
+        # window's own title-bar/caption icon, so it defaults to a generic
+        # Qt icon unless set explicitly here (V6.9 RC QA finding).
+        self.setWindowIcon(default_icon())
         self.resize(640, 480)
 
         self._worker: OCRWorker | None = None

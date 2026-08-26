@@ -48,5 +48,14 @@ def test_set_deep_status_reflects_configuration(qapp):
     assert "configured" in window.deep_status_label.text().lower()
     assert "not configured" not in window.deep_status_label.text().lower()
 
+
+def test_window_icon_is_not_the_generic_qt_default(qapp):
+    # V6.9 RC QA finding: the frozen EXE/Explorer/taskbar icon was correct,
+    # but neither window ever called setWindowIcon(), so Qt's own default
+    # (a null/empty QIcon) showed in the title bar instead of the branded
+    # icon. Guards against the fix regressing silently.
+    window = MainWindow()
+    assert not window.windowIcon().isNull()
+
     window.set_deep_status(False)
     assert "not configured" in window.deep_status_label.text().lower()

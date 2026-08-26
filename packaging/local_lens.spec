@@ -80,6 +80,19 @@ if _release_model_dir:
         )
     datas.append((str(model_dir), "models/easyocr"))
 
+# Required attribution for the bundled EasyOCR (Apache-2.0) and
+# CRAFT-pytorch (MIT) model weights -- both licenses require their notice
+# text to travel with a binary redistribution, not just live in the
+# source repo. V6.9 RC QA found this file was written (V6.8) but never
+# actually added to `datas`, so it never reached the shipped ZIP. Bundled
+# PyInstaller's onedir layout puts all `datas` under `_internal/` (same
+# as the bundled model weights above) -- what matters for compliance is
+# that the file is inside the distributed ZIP at all, not its exact
+# subfolder.
+_notices_path = REPO_ROOT / "THIRD_PARTY_NOTICES.txt"
+if _notices_path.exists():
+    datas.append((str(_notices_path), "."))
+
 a = Analysis(
     [ENTRY_SCRIPT],
     pathex=[str(REPO_ROOT)],

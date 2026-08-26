@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from desktop.icon import default_icon
 from local_lens.deep_analysis.deep_metrics import parse_markdown_table
 from local_lens.export import export_table_csv, export_table_markdown, to_markdown
 from local_lens.models import DocumentResult, TableResult
@@ -220,6 +221,7 @@ class ResultWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Local Lens")
+        self.setWindowIcon(default_icon())
         self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.resize(440, 320)
 

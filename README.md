@@ -1,6 +1,48 @@
 # 🔍 Local Lens
 
-**A local-first screenshot and document intelligence tool.**
+## What is Local Lens?
+
+Local Lens is a Windows desktop utility that lets you press a shortcut,
+select anything on your screen, and turn it into usable text. Press
+**`Ctrl+Shift+Space`**, drag a box around a paragraph, a line of code, a
+table, a chat message, a menu, a scanned document — anything visible on
+your screen — and Local Lens reads it back to you as real, selectable,
+copyable text in a couple of seconds.
+
+It runs as a small icon in your system tray. No accounts, no cloud upload
+required to use it, no subscription. Grab the portable ZIP, run the exe,
+press the shortcut.
+
+**Capture → Read → Copy.**
+
+## Download
+
+The latest release is **v0.4.0**, a self-contained Windows portable build
+— no installer, no separate Python setup, no internet connection required
+to run Fast OCR.
+
+1. Download `LocalLens-v0.4.0-windows-x64-portable.zip` from the
+   [Releases page](https://github.com/danishirfan21/Local-OCR/releases)
+   (~565 MB download; ~1.06 GB once extracted — most of that is the
+   bundled OCR model weights and the Python/Qt runtime, so Fast OCR works
+   completely offline out of the box).
+2. Extract the ZIP anywhere (Desktop, Downloads, an external drive — it
+   doesn't need to sit next to the source code or a Python install).
+3. Run `LocalLens.exe` inside the extracted folder.
+4. The app appears in your system tray. The first launch takes a few
+   extra seconds to warm up the local OCR engine ("Starting local OCR…" →
+   "Fast OCR ready").
+5. Press `Ctrl+Shift+Space` anywhere on your screen, drag a box around
+   something, and the extracted text appears in a small popup with a
+   Copy button.
+
+**A note on Windows SmartScreen:** the executable isn't code-signed (that
+requires a paid certificate), so Windows may show an "Unknown publisher"
+warning the first time you run it. Local Lens doesn't ask you to disable
+Windows Defender, SmartScreen, or any other security feature to use it —
+if you see that warning, it's expected for an unsigned indie build, not a
+sign something is wrong; check the SHA-256 checksum published with the
+release if you want to confirm the file wasn't tampered with in transit.
 
 Local Lens moves from "OCR that dumps text" toward:
 
@@ -16,6 +58,71 @@ Lens does not claim to be "fully private AI" now that Deep Analyze exists;
 it claims exactly what's true for each mode, stated plainly.
 
 The GitHub repo is still `Local-OCR`; the app itself is **Local Lens**.
+
+## Features at a glance
+
+- **Global capture shortcut** (`Ctrl+Shift+Space` by default, changeable
+  in Settings) — works from anywhere, no need to switch to Local Lens
+  first.
+- **Fast OCR, fully offline** — English and Urdu out of the box, powered
+  by a locally-run OCR engine with its model weights bundled directly
+  into the portable build. Typically returns a result in a few seconds.
+- **Handles more than plain paragraphs** — code snippets (monospaced,
+  whitespace preserved), simple tables, and mixed Urdu/English text.
+- **Optional Deep Analyze** — for complex layouts and documents where
+  Fast OCR isn't enough, you can opt in (per capture, with a privacy
+  notice shown first) to send the image to Google's Gemini API using
+  your own API key. Nothing is sent anywhere unless you explicitly click
+  this button.
+- **System tray app** — stays out of your way; Capture, Open, Settings,
+  and Quit are all one right-click away.
+- **Auto-copy and popup controls** — optionally skip the manual Copy
+  click, or close the result popup automatically after copying.
+- **Start with Windows** (optional, off by default) — launches quietly
+  into the tray on login, no console window.
+
+## Privacy, in plain terms
+
+- **Fast OCR never leaves your machine.** No image, no extracted text, no
+  usage data is sent anywhere — this is enforced in code and tested
+  (`tests/test_no_silent_network.py` fails the build if a Fast-mode code
+  path ever opens a network connection).
+- **Deep Analyze is the one exception, and it's opt-in every time.**
+  Clicking "Deep Analyze ✨" sends the captured image to Google's Gemini
+  API using your own API key. You see a privacy disclosure the first time
+  in a session before it's sent. If you never click that button, nothing
+  is ever sent to Gemini or anywhere else.
+- **No accounts, no telemetry, no analytics, no update checks.** Local
+  Lens doesn't phone home for any reason.
+- Application logs go to your normal Windows AppData folder (for
+  diagnosing crashes) and record only event names — never the text you
+  extracted, never a screenshot, never an API key.
+
+## Known limitations (honest, not hidden)
+
+- **Windows only**, x64. There's no macOS or Linux build.
+- **English and Urdu** are the two languages Fast OCR is tuned for today.
+  Other languages aren't currently supported by the bundled models.
+- **Fast OCR is OCR, not an AI reader** — it reads what's visually on
+  screen well for clean text and UI, but complex documents, dense tables,
+  and unusual layouts are exactly where Deep Analyze (Gemini) does
+  measurably better; see the benchmark data linked below.
+- **The portable build is large** (~565 MB ZIP, ~1.06 GB extracted)
+  because it bundles a full local OCR model set so Fast OCR works
+  offline. This is a deliberate trade-off, not an oversight.
+- **The executable is unsigned**, so Windows SmartScreen may warn on
+  first run (see the Download section above).
+- **Multi-monitor setups are structurally supported but not as heavily
+  live-tested** as a single-monitor setup — if you hit a capture-region
+  issue on a multi-monitor rig, it's a genuine gap worth reporting, not a
+  known-and-ignored one.
+- **No installer, no auto-update, no uninstaller beyond deleting the
+  folder** — this is intentional for this release (see "Do not
+  feature-creep" in the project's own release notes); Local Lens also
+  writes a small Settings entry to `HKCU\Software\Local Lens` and,
+  optionally, one `HKCU` Run-key entry if you enable "Start with
+  Windows" — both are removed by turning the relevant setting back off
+  before you delete the folder.
 
 ## Two modes: Fast (local) and Deep Analyze (Gemini, explicit)
 
@@ -41,6 +148,15 @@ that benchmark data (see `docs/V5_GEMINI_DEEP.md`). The old local-PaddleOCR-VL
 path still exists (`local_lens/engines/paddleocr_vl_engine.py`) as an
 explicitly optional, resource-intensive legacy backend — see
 `requirements-paddle.txt`.
+
+---
+
+# Project internals & development
+
+Everything above this line is the user-facing README. Everything below is
+project history, architecture, and developer setup — useful if you're
+building from source, contributing, or curious how a specific claim above
+was verified.
 
 ## Current (implemented and verified this iteration)
 
@@ -291,8 +407,16 @@ portability validation.
   weights. See `docs/V6_8_SELF_CONTAINED_RC.md` for the full record,
   including the two items still needing manual (non-automated)
   verification -- Open Image's file dialog and the tray context menu.
-- **V6.9** — planned next: release-candidate QA + GitHub Release
-  preparation.
+- **V6.9 — Release-candidate QA + GitHub Release preparation** ✓: closed
+  the two items V6.8 left as manual/non-automated (Open Image, the tray
+  Settings/Quit actions) with real, exercised evidence rather than
+  assumptions; found and fixed two real defects (the shipped ZIP never
+  actually included `THIRD_PARTY_NOTICES.txt` despite the spec intending
+  it to, and neither window ever set a branded title-bar icon); rebuilt
+  once and re-verified after those fixes; and audited the final RC
+  extraction for hardcoded developer paths, secrets, and leftover
+  Paddle references (all clean). See `docs/V6_9_RC_QA.md` for the full
+  record and `docs/releases/v0.4.0.md` for the release notes.
 
 ## Roadmap (not built)
 
@@ -408,24 +532,14 @@ Fixed in `local_lens/languages.py` this iteration; see the V3 report for
 how it was found (by testing candidate codes directly against the
 installed package rather than assuming).
 
-## Privacy
-
-- **Fast mode** runs entirely on your machine — no image or extracted text
-  is sent anywhere. `tests/test_no_silent_network.py` enforces that opening
-  the app, uploading, and Fast extraction never open a network connection.
-- **Deep Analyze** sends the selected image to Google's Gemini API (see
-  [Deep Analyze](#deep-analyze-gemini-byok)) — it is explicit, opt-in
-  (requires clicking a button after seeing a disclosure), and never
-  silently triggered. Local Lens does not operate this infrastructure
-  itself; you bring your own Gemini API key.
-- **Model weights download from the internet on first use** of a local
-  engine/pipeline (EasyOCR, and — only if you've opted into
-  `requirements-paddle.txt` — PaddleOCR/the table pipeline/legacy local
-  PaddleOCR-VL). One-time per engine/pipeline, not ongoing.
-- No telemetry, analytics, or external logging in this repo.
-- We don't claim "nothing ever leaves your machine" as a blanket statement —
-  the claim is scoped precisely: Fast mode is local-only; Deep Analyze is
-  not, and says so.
+> See "Privacy, in plain terms" near the top of this README for the
+> user-facing privacy summary. One detail specific to running from
+> source rather than the portable build: **model weights download from
+> the internet on first use** of a local engine/pipeline (EasyOCR, and —
+> only if you've opted into `requirements-paddle.txt` — PaddleOCR/the
+> table pipeline/legacy local PaddleOCR-VL). One-time per engine/pipeline,
+> not ongoing, and irrelevant to the portable build, which bundles its
+> EasyOCR weights directly.
 
 ## Installation
 

@@ -34,6 +34,15 @@ def _result(text: str, content_type: str, *, tables=None) -> DocumentResult:
     )
 
 
+# -- ResultWindow chrome ------------------------------------------------
+
+
+def test_result_window_icon_is_not_the_generic_qt_default(qapp):
+    # See tests/test_main_window.py's equivalent -- same V6.9 RC QA finding.
+    window = ResultWindow()
+    assert not window.windowIcon().isNull()
+
+
 # -- ContentPane -------------------------------------------------------
 
 
