@@ -58,3 +58,14 @@ def test_resolve_easyocr_model_dir_prefers_a_bundled_directory_when_present(monk
     monkeypatch.setattr(runtime_context, "resource_path", lambda *parts: tmp_path.joinpath(*parts))
     result = runtime_context.resolve_easyocr_model_dir()
     assert result == bundled
+
+
+def test_easyocr_model_source_label_is_external_cache_when_no_bundle_exists():
+    assert runtime_context.easyocr_model_source_label() == "external-cache"
+
+
+def test_easyocr_model_source_label_is_bundled_when_bundle_dir_exists(monkeypatch, tmp_path):
+    bundled = tmp_path / "models" / "easyocr"
+    bundled.mkdir(parents=True)
+    monkeypatch.setattr(runtime_context, "resource_path", lambda *parts: tmp_path.joinpath(*parts))
+    assert runtime_context.easyocr_model_source_label() == "bundled"

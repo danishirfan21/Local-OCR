@@ -74,3 +74,15 @@ def resolve_easyocr_model_dir() -> Path:
     if bundled.is_dir():
         return bundled
     return easyocr_model_directory()
+
+
+def easyocr_model_source_label() -> str:
+    """"bundled" or "external-cache" -- which branch resolve_easyocr_model_dir()
+    actually took, for a one-line diagnostic log message (V6.8 item 16)
+    proving a packaged release run used its own bundled weights rather
+    than silently falling back to a developer's real ~/.EasyOCR cache.
+    Deliberately returns a label, not a path -- callers that want to log
+    this should not also log the full resolved directory, since that can
+    contain a real username in its external-cache form."""
+    bundled = resource_path("models", "easyocr")
+    return "bundled" if bundled.is_dir() else "external-cache"

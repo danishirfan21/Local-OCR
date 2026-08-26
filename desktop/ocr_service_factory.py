@@ -5,16 +5,29 @@ from reaching into local_lens.cli internals."""
 
 from __future__ import annotations
 
-from desktop.runtime_context import resolve_easyocr_model_dir
+from desktop.logging_setup import get_logger
+from desktop.runtime_context import easyocr_model_source_label, resolve_easyocr_model_dir
 from local_lens.engines.easyocr_engine import EasyOCREngine
 from local_lens.languages import DEFAULT_LANGUAGE
 from local_lens.services.ocr_service import OCRService
 
+logger = get_logger()
+
+# V6.8 packaged-release-oriented wording: a portable build that bundles
+# its own model weights (see docs/V6_8_SELF_CONTAINED_RC.md) should never
+# tell a user to "run a normal development setup" -- that phrasing only
+# made sense for V6.5-V6.7's external-cache-only story. This message now
+# covers both cases: a damaged/incomplete portable install, or a source
+# checkout that has never had EasyOCR download its models.
 MODEL_UNAVAILABLE_MESSAGE = (
-    "Local OCR model files are unavailable. Fast OCR needs its model files "
-    "downloaded once (run the desktop app in a normal development setup, or "
-    "see docs/V6_5_RELEASE_READINESS.md's model strategy)."
+    "Local OCR model files are missing from this Local Lens installation. "
+    "If this is the portable app, try re-extracting the release ZIP -- the "
+    "models\\easyocr folder next to LocalLens.exe may have been removed or "
+    "damaged. If you're running from source, EasyOCR's model files haven't "
+    "been downloaded into ~/.EasyOCR/model yet."
 )
+
+_logged_model_source_once = False
 
 
 def _new_fast_engine() -> EasyOCREngine:
@@ -26,10 +39,19 @@ def _new_fast_engine() -> EasyOCREngine:
     # FileNotFoundError instead (see friendly_model_error_message below).
     #
     # model_storage_directory resolves via desktop.runtime_context, which
-    # checks a bundled models/easyocr/ resource first (no build populates
-    # it yet -- see docs/V6_7_PORTABLE_OPTIMIZATION.md) and falls back to
-    # the user's own ~/.EasyOCR/model cache, which is what every V6.6/V6.7
-    # build actually uses today.
+    # checks a bundled models/easyocr/ resource first (populated by a
+    # release build with LOCAL_LENS_RELEASE_MODEL_DIR set -- see
+    # docs/V6_8_SELF_CONTAINED_RC.md) and falls back to the user's own
+    # ~/.EasyOCR/model cache otherwise (source/dev mode, and any older
+    # build that never bundled models).
+    global _logged_model_source_once
+    if not _logged_model_source_once:
+        # Logged once per process, and only a label ("bundled" /
+        # "external-cache") -- never the resolved path itself, since the
+        # external-cache path contains the real username (item 16: prove
+        # the model source without leaking unnecessary profile details).
+        logger.info("Fast OCR model source: %s", easyocr_model_source_label())
+        _logged_model_source_once = True
     return EasyOCREngine(download_enabled=False, model_storage_directory=str(resolve_easyocr_model_dir()))
 
 

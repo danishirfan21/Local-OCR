@@ -55,26 +55,28 @@ hiddenimports = [
 # scikit-image). Excluding it would break Fast OCR.
 excludes = ["paddle", "paddleocr", "paddlex", "pandas", "pyarrow"]
 
-# Seam for a future release build to bundle EasyOCR model weights instead
-# of relying on the external ~/.EasyOCR cache (items 18/19/24) -- unused
-# unless LOCAL_LENS_RELEASE_MODEL_DIR is explicitly set, which no V6.7
-# build does. When set, every required weight file must already be
-# present; a missing file fails the build immediately and explicitly
-# rather than silently shipping an incomplete model set or downloading
-# anything. See docs/V6_7_PORTABLE_OPTIMIZATION.md for the exact files
-# this checks and why.
-_REQUIRED_MODEL_FILES = ("craft_mlt_25k.pth", "english_g2.pth", "arabic.pth")
+# Seam for a release build to bundle EasyOCR model weights instead of
+# relying on the external ~/.EasyOCR cache (V6.7 built the seam; V6.8
+# actually populates it) -- unused unless LOCAL_LENS_RELEASE_MODEL_DIR is
+# explicitly set. When set, the full filename+SHA-256+no-unexpected-files
+# validator in packaging/validate_release_models.py must pass; any
+# failure aborts the build immediately and explicitly rather than
+# silently shipping an incomplete/wrong model set or downloading
+# anything. See docs/V6_8_SELF_CONTAINED_RC.md for the exact files this
+# checks, their hashes, and why.
+sys.path.insert(0, str(REPO_ROOT / "packaging"))
+from validate_release_models import ReleaseModelValidationError, validate_release_model_dir
+
 datas = []
 _release_model_dir = os.environ.get("LOCAL_LENS_RELEASE_MODEL_DIR")
 if _release_model_dir:
     model_dir = Path(_release_model_dir)
-    missing = [f for f in _REQUIRED_MODEL_FILES if not (model_dir / f).is_file()]
-    if missing:
+    try:
+        validate_release_model_dir(model_dir)
+    except ReleaseModelValidationError as exc:
         raise SystemExit(
-            f"LOCAL_LENS_RELEASE_MODEL_DIR is set to {model_dir} but is missing: {', '.join(missing)}. "
-            "Refusing to produce an incomplete bundled-model build -- populate every required file "
-            "(see docs/V6_7_PORTABLE_OPTIMIZATION.md's model-strategy section) or unset "
-            "LOCAL_LENS_RELEASE_MODEL_DIR to build with the external-cache strategy instead."
+            f"Refusing to produce a bundled-model build: {exc} Unset LOCAL_LENS_RELEASE_MODEL_DIR "
+            "to build with the external-cache strategy instead."
         )
     datas.append((str(model_dir), "models/easyocr"))
 

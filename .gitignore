@@ -9,6 +9,16 @@ dist/
 build/
 *.whl
 
+# Packaged OCR model weights (V6.8 release-model bundling) -- these are
+# large binary files (~300MB total), copied from the user's own EasyOCR
+# cache for release staging only. Never commit them, wherever they end up.
+*.pth
+
+# Portable release ZIPs and any staged release-model source directory
+*.zip
+LocalLensReleaseModels/
+LocalLensFreshProfile/
+
 # Virtual Environment
 .venv/
 venv/

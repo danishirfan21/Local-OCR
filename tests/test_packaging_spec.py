@@ -86,15 +86,16 @@ def test_spec_references_version_metadata():
 
 
 def test_spec_validates_release_model_dir_before_bundling():
-    # The future bundled-model seam (items 18/19/24) must fail loudly on
-    # an incomplete model directory, never silently ship a partial set or
-    # fall through to a download.
+    # V6.8: the bundled-model seam must fail loudly on an incomplete/wrong
+    # model directory, never silently ship a partial or mismatched set or
+    # fall through to a download. The actual filename/hash checks now live
+    # in packaging/validate_release_models.py (see the tests for that
+    # module) -- the spec itself just wires the seam and aborts the build.
     text = _spec_text()
     assert "LOCAL_LENS_RELEASE_MODEL_DIR" in text
     assert "raise SystemExit" in text
-    assert "craft_mlt_25k.pth" in text
-    assert "english_g2.pth" in text
-    assert "arabic.pth" in text
+    assert "validate_release_model_dir" in text
+    assert "ReleaseModelValidationError" in text
 
 
 def test_icon_and_version_files_actually_exist():

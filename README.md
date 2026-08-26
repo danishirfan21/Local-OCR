@@ -279,8 +279,20 @@ portability validation.
   see `docs/V6_7_PORTABLE_OPTIMIZATION.md` for the licensing research and
   architecture prepared for closing that gap. Not yet a fully
   self-contained offline release.
-- **V6.8** — planned next: self-contained EasyOCR model bundling +
-  release-candidate preparation.
+- **V6.8 — Self-contained offline portable release candidate** ✓: the
+  three EasyOCR model files (`craft_mlt_25k.pth`, `english_g2.pth`,
+  `arabic.pth`, ~299MB, SHA-256-validated at build time) are now bundled
+  directly into the portable build. **Fast OCR works fully offline** --
+  the portable build includes its OCR models, and no model download or
+  external `~/.EasyOCR` cache is required. Proven by launching the final,
+  named, hashed release ZIP (`LocalLens-v0.4.0-windows-x64-portable.zip`)
+  from a fresh extraction under a clean profile with no `.EasyOCR`
+  directory at all: Fast OCR reached "ready" using only its bundled
+  weights. See `docs/V6_8_SELF_CONTAINED_RC.md` for the full record,
+  including the two items still needing manual (non-automated)
+  verification -- Open Image's file dialog and the tray context menu.
+- **V6.9** — planned next: release-candidate QA + GitHub Release
+  preparation.
 
 ## Roadmap (not built)
 
